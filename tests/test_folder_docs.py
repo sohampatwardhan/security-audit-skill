@@ -56,6 +56,27 @@ class FolderDocsTest(unittest.TestCase):
             empty.mkdir(parents=True)
             self.assertIn("No audit reports found", dict(refresh_folder_docs(empty))[empty / "README.md"])
 
+    def test_untrusted_report_values_cannot_inject_markup_or_links(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            folder = self._folder(Path(raw))
+            path = folder / "dependency-audit" / "latest.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["mode"] = "<img src=x onerror=alert(1)>"
+            data["gate_status"] = "[x](http://evil.example)"
+            data["findings"][0]["advisory"]["id"] = "<script>x</script>[a](http://evil.example)"
+            data["findings"][0]["advisory"]["severity"] = "high](http://evil.example)"
+            data["sources"][0]["source"] = "<b>nvd</b>"
+            path.write_text(json.dumps(data), encoding="utf-8")
+            bad = folder / "evil](x)"
+            bad.mkdir()
+            (bad / "latest.json").write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+            readme = dict(refresh_folder_docs(folder))[folder / "README.md"]
+        self.assertNotIn("<script>", readme)
+        self.assertNotIn("<img", readme)
+        self.assertNotIn("<b>", readme)
+        self.assertNotIn("](http://evil.example)", readme)
+        self.assertNotIn("evil](x)", readme)
+
     def test_gitignore_excludes_credential_paths(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             folder = self._folder(Path(raw))

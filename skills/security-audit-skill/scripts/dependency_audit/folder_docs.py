@@ -7,13 +7,19 @@ were already redacted when written, so no credential value can enter them.
 
 from __future__ import annotations
 
+import html
 import json
 from pathlib import Path
+import re
 from typing import Any, Iterable
 
 SECURITY_DIR_NAME = ".security-audit"
 _MAX_LISTED = 10
 _BLOCKING = {"block", "blocked"}
+
+_AREA_NAME = re.compile(r"[A-Za-z0-9._-]+")
+_MARKDOWN_CONTROL = re.compile(r"([\\`*_{}\[\]()#+.!|>~-])")
+_MODES = {"change", "main", "release"}
 
 _STATUS_RANK = {"blocked": 0, "unavailable": 1, "invalid": 2, "warnings": 3, "pass": 4}
 
@@ -113,7 +119,7 @@ def _load_reports(security_dir: Path) -> list[tuple[str, dict[str, Any]]]:
     reports: list[tuple[str, dict[str, Any]]] = []
     for child in sorted(security_dir.iterdir()):
         latest = child / "latest.json"
-        if not child.is_dir() or not latest.is_file():
+        if not _AREA_NAME.fullmatch(child.name) or not child.is_dir() or not latest.is_file():
             continue
         try:
             data = json.loads(latest.read_text(encoding="utf-8"))
@@ -142,7 +148,7 @@ def _render_readme(reports: Iterable[tuple[str, dict[str, Any]]]) -> str:
     for area, data in items:
         counts = _decision_counts(data)
         lines.append(
-            f"| [{area}]({area}/latest.md) | {_status(data)} | {_text(data.get('mode'))} | "
+            f"| [{area}]({area}/latest.md) | {_status(data)} | {_mode(data)} | "
             f"{_text(data.get('project_revision')) or '-'} | {_text(data.get('timestamp')) or '-'} | "
             f"{counts['blocking']} | {counts['warnings']} | {len(_source_gaps(data))} |"
         )
@@ -175,7 +181,12 @@ def _render_readme(reports: Iterable[tuple[str, dict[str, Any]]]) -> str:
 
 def _status(data: dict[str, Any]) -> str:
     value = data.get("gate_status")
-    return value if isinstance(value, str) and value else "invalid"
+    return value if isinstance(value, str) and value in _STATUS_RANK else "invalid"
+
+
+def _mode(data: dict[str, Any]) -> str:
+    value = data.get("mode")
+    return value if value in _MODES else "-"
 
 
 def _headline(status: str) -> str:
@@ -198,7 +209,7 @@ def _decision_counts(data: dict[str, Any]) -> dict[str, int]:
 def _source_gaps(data: dict[str, Any]) -> list[str]:
     sources = data.get("sources") if isinstance(data.get("sources"), list) else []
     return [
-        f"`{_text(item.get('source'))}`: {_text(item.get('state'))}"
+        f"{_text(item.get('source'))}: {_text(item.get('state'))}"
         for item in sources
         if isinstance(item, dict) and item.get("state") in {"partial", "unavailable"}
     ]
@@ -215,11 +226,12 @@ def _top_findings(data: dict[str, Any]) -> list[str]:
         package = item.get("package") if isinstance(item.get("package"), dict) else {}
         if advisory.get("withdrawn"):
             continue
-        severity = _text(advisory.get("severity")) or "unknown"
+        raw = advisory.get("severity")
+        severity = raw if raw in order else "unknown"
         kev = bool(item.get("kev"))
         label = (
-            f"**{severity}**{' (known exploited)' if kev else ''} `{_text(advisory.get('id'))}` in "
-            f"`{_text(package.get('purl')) or _text(package.get('name'))}`"
+            f"**{severity}**{' (known exploited)' if kev else ''} {_text(advisory.get('id'))} in "
+            f"{_text(package.get('purl')) or _text(package.get('name'))}"
         )
         ranked.append((0 if kev else 1, order.get(severity, 4), label))
     ranked.sort()
@@ -231,4 +243,8 @@ def _top_findings(data: dict[str, Any]) -> list[str]:
 
 
 def _text(value: Any) -> str:
-    return " ".join(str(value).split()).replace("|", "\\|") if value is not None else ""
+    """Flatten, HTML-escape, and Markdown-escape untrusted report text, as ``latest.md`` does."""
+    if value is None:
+        return ""
+    flat = " ".join(str(value).split())
+    return _MARKDOWN_CONTROL.sub(r"\\\1", html.escape(flat, quote=True))
