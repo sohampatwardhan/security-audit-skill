@@ -31,7 +31,7 @@ class FolderDocsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             folder = self._folder(Path(raw))
             readme = dict(refresh_folder_docs(folder))[folder / "README.md"]
-        self.assertIn("**Overall: BLOCKED.**", readme)
+        self.assertIn("**Overall: 🔴 Red (BLOCKED).**", readme)
         self.assertIn("[dependency-audit](dependency-audit/latest.md)", readme)
         self.assertIn("AGENTS.md", readme)
 
@@ -63,19 +63,106 @@ class FolderDocsTest(unittest.TestCase):
             data = json.loads(path.read_text(encoding="utf-8"))
             data["mode"] = "<img src=x onerror=alert(1)>"
             data["gate_status"] = "[x](http://evil.example)"
-            data["findings"][0]["advisory"]["id"] = "<script>x</script>[a](http://evil.example)"
-            data["findings"][0]["advisory"]["severity"] = "high](http://evil.example)"
-            data["sources"][0]["source"] = "<b>nvd</b>"
+            data["summary"]["mode"] = "<img src=x onerror=alert(1)>"
+            data["summary"]["status"] = "[x](http://evil.example)"
+            data["summary"]["top_findings"][0]["id"] = "<script>x</script>[a](http://evil.example)|"
+            data["summary"]["top_findings"][0]["subject"] = "<b>pkg</b>"
+            data["summary"]["top_findings"][0]["severity"] = "high](http://evil.example)"
+            data["summary"]["source_gaps"] = [{"source": "<b>nvd</b>", "state": "partial"}]
             path.write_text(json.dumps(data), encoding="utf-8")
             bad = folder / "evil](x)"
             bad.mkdir()
             (bad / "latest.json").write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
             readme = dict(refresh_folder_docs(folder))[folder / "README.md"]
-        self.assertNotIn("<script>", readme)
-        self.assertNotIn("<img", readme)
-        self.assertNotIn("<b>", readme)
-        self.assertNotIn("](http://evil.example)", readme)
-        self.assertNotIn("evil](x)", readme)
+        for forbidden in ("<script>", "<img", "<b>", "](http://evil.example)", "evil](x)"):
+            self.assertNotIn(forbidden, readme)
+
+    def _write(self, folder: Path, name: str, data: dict) -> None:
+        area = folder / name
+        area.mkdir(parents=True, exist_ok=True)
+        (area / "latest.json").write_text(json.dumps(data), encoding="utf-8")
+
+    def _summary(self, status: str, **extra: object) -> dict:
+        return {"area": "x", "status": status, "mode": "change",
+                "counts": {"blocking": 0, "warnings": 0, "excluded": 0, "source_gaps": 0},
+                "top_findings": [], "more_findings": 0, "source_gaps": [], **extra}
+
+    def _three_areas(self, folder: Path) -> str:
+        for name, status in (("a-pass", "pass"), ("b-warn", "warnings"), ("c-block", "blocked")):
+            self._write(folder, name, {"gate_status": status, "mode": "change", "summary": self._summary(status)})
+        return dict(refresh_folder_docs(folder))[folder / "README.md"]
+
+    def test_readme_comes_only_from_the_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            folder = self._folder(Path(raw))
+            path = folder / "dependency-audit" / "latest.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["findings"][0]["advisory"]["id"] = "CHANGED-ONLY-IN-FINDINGS"
+            path.write_text(json.dumps(data), encoding="utf-8")
+            readme = dict(refresh_folder_docs(folder))[folder / "README.md"]
+        self.assertNotIn("CHANGED-ONLY-IN-FINDINGS", readme)
+        self.assertIn("GHSA", readme)
+
+    def test_readme_shows_rag_word_overall_banner_legend_and_pie(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            folder = Path(raw) / ".security-audit"
+            readme = self._three_areas(folder)
+        for label in ("🟢 Green", "🟠 Amber", "🔴 Red"):
+            self.assertIn(label, readme)
+        self.assertIn("**Overall: 🔴 Red", readme)
+        self.assertIn("pie title Areas by RAG status", readme)
+        for slice_line in ('"Green" : 1', '"Amber" : 1', '"Red" : 1'):
+            self.assertIn(slice_line, readme)
+
+    def test_pie_omits_zero_slices_and_holds_only_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            folder = self._folder(Path(raw))
+            readme = dict(refresh_folder_docs(folder))[folder / "README.md"]
+        self.assertNotIn('"Green"', readme)
+        self.assertNotIn('"Amber"', readme)
+        self.assertIn('"Red" : 1', readme)
+
+    def test_unavailable_or_unknown_status_is_red(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            folder = Path(raw) / ".security-audit"
+            self._write(folder, "a", {"gate_status": "unavailable"})
+            self._write(folder, "b", {"gate_status": "[x](y)", "summary": []})
+            self._write(folder, "c", {})
+            readme = dict(refresh_folder_docs(folder))[folder / "README.md"]
+        self.assertEqual(readme.count("🔴 Red |"), 3)
+        self.assertNotIn("| 🟢 Green |", readme)
+        self.assertNotIn('"Green"', readme)
+
+    def test_pre_summary_report_is_listed_with_status_only(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            folder = self._folder(Path(raw))
+            path = folder / "dependency-audit" / "latest.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            del data["summary"]
+            data["schema_version"] = "1.0"
+            path.write_text(json.dumps(data), encoding="utf-8")
+            readme = dict(refresh_folder_docs(folder))[folder / "README.md"]
+        self.assertIn("| [dependency-audit](dependency-audit/latest.md) | 🔴 Red | blocked | change |", readme)
+        self.assertIn("re-run the audit", readme)
+
+    def test_malformed_summary_falls_back_without_crashing(self) -> None:
+        for bad in ([], "x", None, {"counts": {"blocking": -1}}):
+            with self.subTest(bad=repr(bad)), tempfile.TemporaryDirectory() as raw:
+                folder = Path(raw) / ".security-audit"
+                self._write(folder, "area", {"gate_status": "pass", "mode": "main", "summary": bad})
+                readme = dict(refresh_folder_docs(folder))[folder / "README.md"]
+                self.assertIn("| [area](area/latest.md) | 🟢 Green | pass | main |", readme)
+                self.assertIn("re-run the audit", readme)
+
+    def test_oversized_summary_is_capped_in_the_readme(self) -> None:
+        finding = {"severity": "high", "id": "ADV", "subject": "pkg:npm/a@1", "flags": []}
+        with tempfile.TemporaryDirectory() as raw:
+            folder = Path(raw) / ".security-audit"
+            summary = self._summary("blocked", top_findings=[finding] * 1000, more_findings=990)
+            self._write(folder, "area", {"gate_status": "blocked", "summary": summary})
+            readme = dict(refresh_folder_docs(folder))[folder / "README.md"]
+        self.assertLessEqual(sum(line.startswith("- **high**") for line in readme.splitlines()), 10)
+        self.assertIn("and 990 more", readme)
 
     def test_gitignore_excludes_credential_paths(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

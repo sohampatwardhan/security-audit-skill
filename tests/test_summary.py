@@ -14,7 +14,7 @@ from dependency_audit.models import (  # noqa: E402
     GateStatus, PackageRef, SourceState, SourceStatus,
 )
 from dependency_audit.summary import (  # noqa: E402
-    DEPENDENCY_AREA, MAX_TOP_FINDINGS, build_summary,
+    DEPENDENCY_AREA, MAX_TOP_FINDINGS, build_summary, rag_for, read_summary,
 )
 
 
@@ -84,6 +84,61 @@ class BuildSummaryTest(unittest.TestCase):
         by_id = {item["id"]: item["severity"] for item in summary["top_findings"]}
         self.assertEqual(by_id, {"A": "unknown", "B": "high"})
         self.assertEqual(summary["top_findings"][0]["id"], "B")
+
+
+def built_summary() -> dict:
+    result = result_with([Decision.BLOCK, Decision.WARN], [SourceState.PARTIAL])
+    return build_summary(DEPENDENCY_AREA, result, [finding("GHSA-1", "critical", kev=True), finding("GHSA-2", name="b")])
+
+
+class ReadSummaryTest(unittest.TestCase):
+    def test_roundtrip_of_a_built_summary(self) -> None:
+        built = built_summary()
+        parsed = read_summary({"summary": built})
+        self.assertIsNotNone(parsed)
+        self.assertEqual((parsed.status, parsed.mode, parsed.area), ("blocked", "change", "dependency-audit"))
+        self.assertEqual((parsed.blocking, parsed.warnings, parsed.excluded, parsed.source_gaps), (1, 1, 0, 1))
+        self.assertEqual([item.id for item in parsed.top_findings], ["GHSA-1", "GHSA-2"])
+        self.assertEqual(parsed.top_findings[0].flags, ("known_exploited",))
+        self.assertEqual(parsed.gap_items, (("source-0", "partial"),))
+
+    def test_rag_mapping_is_never_greener_than_status(self) -> None:
+        statuses = ("pass", "warnings", "blocked", "unavailable", "invalid", "x", "", None)
+        self.assertEqual(
+            [rag_for(item) for item in statuses],
+            ["green", "amber", "red", "red", "red", "red", "red", "red"],
+        )
+
+    def test_malformed_summaries_return_none(self) -> None:
+        good = built_summary()
+        cases = [None, [], "x", 3, {}]
+        for bad_count in (-1, True, 1.5, "2", 1_000_001, None):
+            counts = dict(good["counts"], blocking=bad_count)
+            cases.append(dict(good, counts=counts))
+        cases.append(dict(good, counts="nope"))
+        cases.append(dict(good, more_findings=-5))
+        for case in cases:
+            with self.subTest(case=repr(case)[:60]):
+                self.assertIsNone(read_summary({"summary": case}))
+        self.assertIsNone(read_summary({}))
+
+    def test_enums_text_and_lists_are_clamped(self) -> None:
+        hostile = built_summary()
+        hostile["status"], hostile["mode"] = "x", "x"
+        hostile["top_findings"] = [
+            {"severity": "x", "id": "A\nB" + "z" * 10_000, "subject": "s", "flags": ["known_exploited", "evil"]}
+        ] * 1000
+        hostile["source_gaps"] = [{"source": "n" * 500, "state": "weird"}] * 50
+        parsed = read_summary({"summary": hostile})
+        self.assertEqual((parsed.status, parsed.mode), ("invalid", "-"))
+        self.assertEqual(len(parsed.top_findings), 10)
+        first = parsed.top_findings[0]
+        self.assertLessEqual(len(first.id), 200)
+        self.assertNotIn("\n", first.id)
+        self.assertEqual((first.severity, first.flags), ("unknown", ("known_exploited",)))
+        self.assertEqual(len(parsed.gap_items), 10)
+        self.assertLessEqual(len(parsed.gap_items[0][0]), 200)
+        self.assertEqual(parsed.gap_items[0][1], "unknown")
 
 
 if __name__ == "__main__":
