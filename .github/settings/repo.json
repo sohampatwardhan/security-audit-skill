@@ -1,0 +1,18 @@
+{
+  "repo": {
+    "allow_squash_merge": true,
+    "allow_merge_commit": false,
+    "allow_rebase_merge": false,
+    "delete_branch_on_merge": true,
+    "allow_auto_merge": true,
+    "has_issues": true,
+    "has_wiki": false
+  },
+  "security": {
+    "vulnerability_alerts": "enabled",
+    "automated_security_fixes": "enabled",
+    "secret_scanning": "enabled",
+    "secret_scanning_push_protection": "enabled"
+  },
+  "declined": []
+}

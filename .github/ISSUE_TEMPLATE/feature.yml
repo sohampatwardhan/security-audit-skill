@@ -1,0 +1,16 @@
+name: Feature request
+description: Propose new behavior or an audit area
+type: Feature
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or goal
+      description: What you want to be able to do, and why.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Optional. Sketch how it could work, including how it should fail when evidence is missing.

@@ -13,6 +13,8 @@ the skill does and how to use it, read [README.md](README.md) and [SKILL.md](SKI
 | `skills/security-audit-skill/scripts/` | The two CLIs and the `dependency_audit` package they share. |
 | `skills/security-audit-skill/agents/openai.yaml` | Display metadata for agents that read it. |
 | `tests/` | Offline unit tests and fixtures; `live_smoke.py` is opt-in and networked. Not shipped with the skill. |
+| `.github/` | CI, issue and PR templates, Dependabot, and `settings/` (desired repo settings and labels as JSON; descriptive only, applying them to GitHub needs the owner's approval). |
+| `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CLAUDE.md` | Keep a Changelog history, contributor entry point, private vulnerability reporting, and a one-line import of this file. |
 | `.specs/` | Historical build spec. Do not edit or treat as current behavior. |
 
 ## Commands
@@ -70,7 +72,8 @@ Follow the [Agent Skills specification](https://agentskills.io/specification):
 
 Bump `metadata.version` in `SKILL.md` with semver when behavior changes: patch for fixes, minor for
 backward-compatible features, major for breaking changes (exit codes, report schema, CLI flags).
-Keep the README's documented behavior in step with the version you ship.
+Keep the README's documented behavior in step with the version you ship, and add a `CHANGELOG.md` entry
+for every user-visible change.
 
 ## Scope
 
