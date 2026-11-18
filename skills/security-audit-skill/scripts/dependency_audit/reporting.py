@@ -21,6 +21,7 @@ from urllib.parse import parse_qsl, quote, urlsplit, urlunsplit
 
 from .folder_docs import is_security_dir, refresh_folder_docs
 from .models import AuditMode, AuditResult, Decision, DecisionRecord, Finding, GateStatus
+from .summary import DEPENDENCY_AREA, build_summary
 
 
 _CREDENTIAL_PATTERN = re.compile(
@@ -102,6 +103,9 @@ def render_json(
         [decision.to_dict() for _, decision in ordered_pairs]
         + [decision.to_dict() for decision in unmatched_decisions]
     )
+    active = [finding for finding, decision in ordered_pairs if decision.decision is not Decision.EXCLUDED]
+    active += unmatched_findings
+    payload["summary"] = build_summary(DEPENDENCY_AREA, result, active)
     payload = _redact_value(payload, credential_values)
     _canonicalize_payload(payload)
     return json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n"

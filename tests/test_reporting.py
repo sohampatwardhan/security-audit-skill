@@ -103,10 +103,41 @@ class ReportingTests(unittest.TestCase):
         self.assertEqual(actual_json, (FIXTURES / "expected-report.json").read_text())
         self.assertEqual(actual_markdown, (FIXTURES / "expected-report.md").read_text())
         payload = json.loads(actual_json)
-        self.assertEqual(payload["schema_version"], "1.0")
+        self.assertEqual(payload["schema_version"], "1.1")
         self.assertEqual(len(payload["findings"]), 2)
         self.assertIn("Blocking findings (1)", actual_markdown)
         self.assertIn("Warnings (1)", actual_markdown)
+
+    def test_render_json_includes_summary_consistent_with_report(self) -> None:
+        payload = json.loads(render_json(sample_result()))
+        summary = payload["summary"]
+        self.assertEqual(summary["status"], payload["gate_status"])
+        self.assertEqual(summary["area"], "dependency-audit")
+        self.assertEqual(
+            summary["counts"]["blocking"],
+            sum(item["decision"] == "block" for item in payload["decisions"]),
+        )
+        self.assertEqual(len(summary["top_findings"]), 2)
+
+    def test_summary_is_redacted_like_the_rest_of_the_report(self) -> None:
+        result = sample_result()
+        hostile = Finding(
+            package=result.findings[0].package,
+            advisory=Advisory(id="OSV-seeded-secret", severity="high"),
+        )
+        result.findings.append(hostile)
+        result.decisions.append(DecisionRecord(Decision.WARN, ("non_blocking_severity",)))
+        text = render_json(result, credential_values=("seeded-secret",))
+        self.assertNotIn("seeded-secret", text)
+        ids = [item["id"] for item in json.loads(text)["summary"]["top_findings"]]
+        self.assertIn("OSV-[REDACTED]", ids)
+
+    def test_excluded_findings_stay_out_of_the_summary(self) -> None:
+        result = sample_result()
+        result.decisions[0] = DecisionRecord(Decision.EXCLUDED, ("withdrawn",))
+        payload = json.loads(render_json(result))
+        listed = [item["id"] for item in payload["summary"]["top_findings"]]
+        self.assertEqual(len(listed), len(payload["findings"]) - 1)
 
     def test_output_is_deterministic_for_set_like_and_input_ordering(self) -> None:
         result = sample_result()

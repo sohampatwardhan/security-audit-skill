@@ -53,6 +53,9 @@ Run the offline suite from the repo root before every commit. CI runs the same c
 3. Policy and decision rules live in `references/policy.md`; source and endpoint details live in
    `references/sources.md`. Keep `SKILL.md` short and link out instead of duplicating.
 4. Report schema changes are versioned. Do not change existing report fields silently.
+5. Every audit area writes the `summary` block (`scripts/dependency_audit/summary.py`) and the README
+   reads only that block, never area-specific fields. Status must come from the gate result, and RAG
+   must never be greener than the status (`rag_for`).
 
 ## Keeping the skill spec-compliant
 

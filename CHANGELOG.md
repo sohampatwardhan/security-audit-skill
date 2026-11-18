@@ -13,8 +13,14 @@ All notable changes to this skill are documented here. The format follows
 - Repository logistics: `CLAUDE.md`, `CONTRIBUTING.md`, `SECURITY.md`, `.editorconfig`, issue and
   pull request templates, Dependabot for GitHub Actions, and committed settings under
   `.github/settings/`.
+- Every audit report carries an area-neutral `summary` block (status, counts, top findings), and
+  the generated `.security-audit/README.md` reads only that block. The README shows a RAG
+  (red/amber/green) status per area, an overall banner, a legend, and a pie chart. Only `pass` is
+  green; `unavailable`, `invalid`, and unknown statuses are red.
 
 ### Changed
+- Audit reports use schema `1.1`. The change is additive: existing fields, exit codes, and report
+  paths are unchanged, and advisory-search output stays at `1.0`.
 - **Breaking:** reports now default to `PROJECT/.security-audit/dependency-audit/` (was
   `.security/dependency-audit/`). The next release should be 2.0.0.
 - The skill moved to `skills/security-audit-skill/`; tests and specs are no longer part of it.
