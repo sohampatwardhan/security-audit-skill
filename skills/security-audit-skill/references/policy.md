@@ -54,11 +54,11 @@ The aggregate decision order, as a flow:
 flowchart TD
     A([Audit result]) --> B{Configuration valid?}
     B -->|No| X3([invalid, exit 3])
-    B -->|Yes| C{Required evidence missing, partial, stale, or incomplete?}
+    B -->|Yes| C{Main or release: required evidence incomplete, or release no-fix lacks acceptance?}
     C -->|Yes| X2([unavailable, exit 2])
     C -->|No| D{Any blocking finding?}
     D -->|Yes| X1([blocked, exit 1])
-    D -->|No| E{Warnings or change-mode source gaps?}
+    D -->|No| E{Warnings, or change-mode source gaps?}
     E -->|Yes| XW([warnings, exit 0])
     E -->|No| XP([pass, exit 0])
 ```
@@ -71,7 +71,10 @@ but the block remains in the report. In change mode, a source gap prevents a `pa
 
 Every audit report (schema `1.1`) carries an area-neutral `summary`. The generated
 `.security-audit/README.md` reads only this block, so a new audit area never needs the README to know
-its finding shape. Status and counts come from the same gate result the exit code uses.
+its finding shape. `status` and the decision counts come from the same gate result the exit code uses.
+`source_gaps` lists every partial or unavailable source and inventory status, including optional
+enrichment sources (such as NVD) that a main or release gate does not require, so a gap is never hidden.
+The README also reads the report's top-level `gate_status`, `project_revision`, and `timestamp`.
 
 | Field | Meaning |
 |---|---|
@@ -100,7 +103,10 @@ flowchart TD
 The README treats every summary field as untrusted. Unknown enum values degrade to `invalid`, `-`, or
 `unknown`; text is flattened, escaped, and capped at 200 characters; lists are capped; and a missing
 or malformed summary (counts that are not plain integers) falls back to the report's `gate_status`
-with a note to re-run the audit. A malformed summary can never make a result look better.
+with a note to re-run the audit. A summary can never make a result look better: the README shows the
+worst of `summary.status`, the report's `gate_status`, and the status its own counts imply (any
+blocking finding is at least blocked, any warning at least warnings). Findings beyond the 10 listed are
+always counted in `more_findings`.
 
 ```mermaid
 flowchart TD

@@ -65,11 +65,11 @@ How the audit decides its status and exit code:
 flowchart TD
     A([Audit result]) --> B{Configuration valid?}
     B -->|No| X3([invalid, exit 3])
-    B -->|Yes| C{Required evidence missing, partial, stale, or incomplete?}
+    B -->|Yes| C{Main or release: required evidence incomplete, or release no-fix lacks acceptance?}
     C -->|Yes| X2([unavailable, exit 2])
     C -->|No| D{Any blocking finding?}
     D -->|Yes| X1([blocked, exit 1])
-    D -->|No| E{Warnings or change-mode source gaps?}
+    D -->|No| E{Warnings, or change-mode source gaps?}
     E -->|Yes| XW([warnings, exit 0])
     E -->|No| XP([pass, exit 0])
 ```

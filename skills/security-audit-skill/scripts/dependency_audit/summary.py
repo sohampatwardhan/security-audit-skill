@@ -152,15 +152,14 @@ def read_summary(data: Mapping[str, Any]) -> ReportSummary | None:
     mode = raw.get("mode")
     findings = raw.get("top_findings")
     gaps = raw.get("source_gaps")
+    listed = [item for item in (findings if isinstance(findings, list) else []) if isinstance(item, Mapping)]
+    more = max(more, len(listed) - MAX_TOP_FINDINGS)  # never hide findings dropped by the cap
     return ReportSummary(
         area=_flat(raw.get("area")),
         status=status if isinstance(status, str) and status in _STATUSES else "invalid",
         mode=mode if isinstance(mode, str) and mode in MODES else "-",
         blocking=values[0], warnings=values[1], excluded=values[2], source_gaps=values[3],
-        top_findings=tuple(
-            _read_finding(item) for item in (findings if isinstance(findings, list) else [])
-            if isinstance(item, Mapping)
-        )[:MAX_TOP_FINDINGS],
+        top_findings=tuple(_read_finding(item) for item in listed[:MAX_TOP_FINDINGS]),
         more_findings=more,
         gap_items=tuple(
             (_flat(item.get("source")), _read_state(item.get("state")))

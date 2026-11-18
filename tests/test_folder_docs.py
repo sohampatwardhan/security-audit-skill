@@ -154,6 +154,61 @@ class FolderDocsTest(unittest.TestCase):
                 self.assertIn("| [area](area/latest.md) | 🟢 Green | pass | main |", readme)
                 self.assertIn("re-run the audit", readme)
 
+    def test_summary_status_cannot_be_better_than_the_report_gate_status(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            folder = Path(raw) / ".security-audit"
+            self._write(folder, "area", {"gate_status": "blocked", "summary": self._summary("pass")})
+            readme = dict(refresh_folder_docs(folder))[folder / "README.md"]
+        self.assertIn("| [area](area/latest.md) | 🔴 Red | blocked |", readme)
+        self.assertIn("**Overall: 🔴 Red (BLOCKED).**", readme)
+
+    def test_counts_that_contradict_the_status_make_it_worse_not_better(self) -> None:
+        counts = {"blocking": 5, "warnings": 0, "excluded": 0, "source_gaps": 0}
+        with tempfile.TemporaryDirectory() as raw:
+            folder = Path(raw) / ".security-audit"
+            self._write(folder, "a", {"summary": self._summary("warnings", counts=counts)})
+            self._write(folder, "b", {"summary": self._summary("pass", counts=dict(counts, blocking=0, warnings=2))})
+            readme = dict(refresh_folder_docs(folder))[folder / "README.md"]
+        self.assertIn("| [a](a/latest.md) | 🔴 Red | blocked |", readme)
+        self.assertIn("| [b](b/latest.md) | 🟠 Amber | warnings |", readme)
+
+    def test_summary_without_a_top_level_gate_status_is_used_as_is(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            folder = Path(raw) / ".security-audit"
+            self._write(folder, "area", {"summary": self._summary("pass")})
+            readme = dict(refresh_folder_docs(folder))[folder / "README.md"]
+        self.assertIn("| [area](area/latest.md) | 🟢 Green | pass |", readme)
+
+    def test_valid_summary_with_unavailable_or_unknown_status_is_red(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            folder = Path(raw) / ".security-audit"
+            self._write(folder, "a", {"summary": self._summary("unavailable")})
+            self._write(folder, "b", {"summary": self._summary("[x](y)")})
+            readme = dict(refresh_folder_docs(folder))[folder / "README.md"]
+        self.assertEqual(readme.count("🔴 Red |"), 2)
+        self.assertNotIn("| 🟢 Green |", readme)
+
+    def test_long_revision_timestamp_and_area_name_cannot_flood_or_autolink(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            folder = Path(raw) / ".security-audit"
+            self._write(folder, "www.evil.example", {
+                "gate_status": "pass", "project_revision": "r" * 20_000, "timestamp": "t" * 20_000,
+                "summary": self._summary("warnings"),
+            })
+            readme = dict(refresh_folder_docs(folder))[folder / "README.md"]
+        self.assertLess(max(len(line) for line in readme.splitlines()), 1000)
+        self.assertNotIn("## www.evil.example", readme)
+        self.assertNotIn("[www.evil.example]", readme)
+
+    def test_pie_block_contains_only_fixed_labels_and_integers(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            folder = Path(raw) / ".security-audit"
+            readme = self._three_areas(folder)
+        block = readme.split("```mermaid\n", 1)[1].split("\n```", 1)[0].splitlines()
+        self.assertEqual(block[0], "pie title Areas by RAG status")
+        for line in block[1:]:
+            self.assertRegex(line, r'^    "(Green|Amber|Red)" : \d+$')
+
     def test_non_pass_area_with_nothing_to_list_still_says_why_to_look(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             folder = Path(raw) / ".security-audit"
@@ -174,7 +229,7 @@ class FolderDocsTest(unittest.TestCase):
         finding = {"severity": "high", "id": "ADV", "subject": "pkg:npm/a@1", "flags": []}
         with tempfile.TemporaryDirectory() as raw:
             folder = Path(raw) / ".security-audit"
-            summary = self._summary("blocked", top_findings=[finding] * 1000, more_findings=990)
+            summary = self._summary("blocked", top_findings=[finding] * 1000, more_findings=0)
             self._write(folder, "area", {"gate_status": "blocked", "summary": summary})
             readme = dict(refresh_folder_docs(folder))[folder / "README.md"]
         self.assertLessEqual(sum(line.startswith("- **high**") for line in readme.splitlines()), 10)

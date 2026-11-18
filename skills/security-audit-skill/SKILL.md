@@ -4,7 +4,7 @@ description: Audit resolved third-party dependencies for known vulnerabilities, 
 license: MIT
 compatibility: Requires Python 3.10+ (standard library only) and network access to OSV, CISA KEV, and optionally GitHub and NVD. Native audit tools (npm, pip-audit, cargo-audit, govulncheck) are used when the matching ecosystem is present.
 metadata:
-  version: "1.1.0"
+  version: "2.0.0"
 ---
 
 # Security Audit: Dependency Vulnerabilities

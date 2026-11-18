@@ -117,7 +117,9 @@ Added to every report's JSON at schema version `1.1` (was `1.0`):
 ```
 
 - `status` is the report's `GateStatus`; `mode` is `change`, `main`, or `release`.
-- `counts` are derived from the same decisions and sources the gate uses.
+- `status` and the decision `counts` are derived from the same gate result the exit code uses.
+  `source_gaps` lists every partial or unavailable source and inventory status, including optional
+  enrichment sources a main or release gate does not require, so a gap is never hidden.
 - `top_findings` is capped at 10, ordered known-exploited first then by severity. `subject` is a
   neutral label (a package URL, a file and line, a resource). `flags` is a list of known values.
   `more_findings` counts the rest.
@@ -154,6 +156,9 @@ flowchart TD
 
 ### Reading rules (untrusted input)
 
+- The README shows the worst of `summary.status`, the report's `gate_status`, and the status the
+  counts imply (blocking means at least blocked, warnings at least warnings); findings dropped by the
+  cap are always added to `more_findings`.
 - Enums restricted to known values (`status`, `mode`, severity, flags); unknown becomes `invalid`,
   `-`, `unknown`, or is dropped.
 - Text fields flattened, HTML- and Markdown-escaped, and length-capped; lists capped.

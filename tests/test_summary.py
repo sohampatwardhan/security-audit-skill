@@ -13,6 +13,8 @@ from dependency_audit.models import (  # noqa: E402
     Advisory, AuditMode, AuditResult, Decision, DecisionRecord, DependencyScope, Finding,
     GateStatus, PackageRef, SourceState, SourceStatus,
 )
+from dataclasses import replace  # noqa: E402
+from dependency_audit.policy import gate_result  # noqa: E402
 from dependency_audit.summary import (  # noqa: E402
     DEPENDENCY_AREA, MAX_TOP_FINDINGS, build_summary, rag_for, read_summary,
 )
@@ -100,6 +102,45 @@ class BuildSummaryTest(unittest.TestCase):
         self.assertEqual(summary["top_findings"][0]["id"], "B")
 
 
+class GateAgreementTest(unittest.TestCase):
+    """The summary must agree with the real gate, not with a hand-set status."""
+
+    def _gated(self, result: AuditResult):
+        gate = gate_result(result)
+        result.gate_status = gate.status
+        return gate, build_summary(DEPENDENCY_AREA, result, [])
+
+    def test_summary_agrees_with_gate_result_for_each_status(self) -> None:
+        pass_result = result_with([], [SourceState.OK])
+        warn_result = result_with([Decision.WARN, Decision.EXCLUDED], [SourceState.OK])
+        block_result = result_with([Decision.BLOCK, Decision.WARN], [SourceState.OK])
+        unavailable = result_with([Decision.BLOCK], [SourceState.OK])
+        unavailable.mode = AuditMode.MAIN
+        unavailable.inventory.complete = False
+        for name, result, expected in (
+            ("pass", pass_result, "pass"), ("warnings", warn_result, "warnings"),
+            ("blocked", block_result, "blocked"), ("unavailable", unavailable, "unavailable"),
+        ):
+            with self.subTest(name):
+                gate, summary = self._gated(result)
+                self.assertEqual(summary["status"], expected)
+                self.assertEqual(summary["status"], gate.status.value)
+                self.assertEqual(summary["counts"]["blocking"], gate.blocked_count)
+                self.assertEqual(summary["counts"]["warnings"], gate.warning_count)
+                self.assertEqual(summary["counts"]["excluded"], gate.excluded_count)
+
+    def test_optional_source_gap_in_main_mode_is_listed_without_changing_status(self) -> None:
+        result = result_with([], [SourceState.OK, SourceState.PARTIAL])
+        result.mode = AuditMode.MAIN
+        result.inventory.complete = True
+        required = [result.sources[0]]  # the runner gates main and release on required sources only
+        result.gate_status = gate_result(replace(result, sources=required)).status
+        summary = build_summary(DEPENDENCY_AREA, result, [])
+        self.assertEqual(summary["status"], "pass")
+        self.assertEqual(summary["counts"]["source_gaps"], 1)
+        self.assertEqual(summary["source_gaps"], [{"source": "source-1", "state": "partial"}])
+
+
 def built_summary() -> dict:
     result = result_with([Decision.BLOCK, Decision.WARN], [SourceState.PARTIAL])
     return build_summary(DEPENDENCY_AREA, result, [finding("GHSA-1", "critical", kev=True), finding("GHSA-2", name="b")])
@@ -122,6 +163,16 @@ class ReadSummaryTest(unittest.TestCase):
             [rag_for(item) for item in statuses],
             ["green", "amber", "red", "red", "red", "red", "red", "red"],
         )
+
+    def test_truncated_findings_are_always_accounted_for(self) -> None:
+        hostile = built_summary()
+        hostile["top_findings"] = [
+            {"severity": "high", "id": "A", "subject": "s", "flags": []}
+        ] * 1000
+        hostile["more_findings"] = 0
+        parsed = read_summary({"summary": hostile})
+        self.assertEqual(len(parsed.top_findings), 10)
+        self.assertEqual(parsed.more_findings, 990)
 
     def test_malformed_summaries_return_none(self) -> None:
         good = built_summary()

@@ -13,7 +13,7 @@ from pathlib import Path
 import re
 from typing import Any, Iterable
 
-from .summary import MODES, ReportSummary, rag_for, read_summary
+from .summary import MAX_TEXT, MODES, ReportSummary, rag_for, read_summary
 
 SECURITY_DIR_NAME = ".security-audit"
 
@@ -145,7 +145,7 @@ def _render_readme(reports: Iterable[tuple[str, dict[str, Any]]]) -> str:
     rows = []
     for area, data in reports:
         summary = read_summary(data)
-        rows.append((area, data, summary, summary.status if summary else _status(data)))
+        rows.append((area, data, summary, _effective_status(summary, data) if summary else _status(data)))
     rows.sort(key=lambda row: (_STATUS_RANK.get(row[3], 9), row[0]))
     lines = ["# Security audit summary", ""]
     if not rows:
@@ -167,7 +167,7 @@ def _render_readme(reports: Iterable[tuple[str, dict[str, Any]]]) -> str:
             if summary else ("-", "-", "-")
         )
         lines.append(
-            f"| [{area}]({area}/latest.md) | {_RAG_LABEL[rag_for(status)]} | {status} | "
+            f"| [{_label(area)}]({area}/latest.md) | {_RAG_LABEL[rag_for(status)]} | {status} | "
             f"{summary.mode if summary else _mode(data)} | "
             f"{_text(data.get('project_revision')) or '-'} | {_timestamp(data)} | "
             f"{counts[0]} | {counts[1]} | {counts[2]} |"
@@ -179,8 +179,8 @@ def _render_readme(reports: Iterable[tuple[str, dict[str, Any]]]) -> str:
         if summary and not detail:
             if status == "pass":
                 continue
-            detail = [f"No individual findings or source gaps are listed; see [{area}/latest.md]({area}/latest.md)."]
-        lines += [f"## {area}", "", *detail, "", f"Details: [{area}/latest.md]({area}/latest.md)", ""]
+            detail = [f"No individual findings or source gaps are listed; see [{_label(area)}/latest.md]({area}/latest.md)."]
+        lines += [f"## {_label(area)}", "", *detail, "", f"Details: [{_label(area)}/latest.md]({area}/latest.md)", ""]
 
     lines += [
         "Generated from each area's `latest.json`. Do not edit; see [AGENTS.md](AGENTS.md) for how to "
@@ -191,8 +191,25 @@ def _render_readme(reports: Iterable[tuple[str, dict[str, Any]]]) -> str:
     return "\n".join(lines)
 
 
+def _label(area: str) -> str:
+    """Display an area name without letting a dotted name autolink or underscores emphasize."""
+    return area.replace(".", "\\.").replace("_", "\\_")
+
+
+def _effective_status(summary: ReportSummary, data: dict[str, Any]) -> str:
+    """Return the worst status the report supports, so a summary can never improve on the gate."""
+    candidates = [summary.status]
+    if data.get("gate_status") is not None:
+        candidates.append(_status(data))
+    if summary.blocking:
+        candidates.append("blocked")
+    elif summary.warnings:
+        candidates.append("warnings")
+    return min(candidates, key=lambda item: _STATUS_RANK.get(item, -1))
+
+
 def _pie(statuses: Iterable[str]) -> list[str]:
-    counts = {key: 0 for key, _label in _RAG_PIE}
+    counts = {key: 0 for key, _name in _RAG_PIE}
     for status in statuses:
         counts[rag_for(status)] += 1
     slices = [f'    "{label}" : {counts[key]}' for key, label in _RAG_PIE if counts[key]]
@@ -248,5 +265,5 @@ def _text(value: Any) -> str:
     """Flatten, HTML-escape, and Markdown-escape untrusted report text, as ``latest.md`` does."""
     if value is None:
         return ""
-    flat = " ".join(str(value).split())
+    flat = " ".join(str(value).split())[:MAX_TEXT]
     return _MARKDOWN_CONTROL.sub(r"\\\1", html.escape(flat, quote=True))
