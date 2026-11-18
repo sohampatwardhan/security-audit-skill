@@ -279,13 +279,13 @@ class InventoryAdapterTests(unittest.TestCase):
 
     def test_runner_terminates_flooding_command_at_output_limit(self) -> None:
         result = run_command(
-            (sys.executable, "-c", "import sys; sys.stdout.write('x' * 1100000)"),
+            (sys.executable, "-c", "import sys; sys.stdout.write('x' * 8100000)"),
             Path("."),
             timeout=2.0,
         )
 
         self.assertEqual(result.returncode, 125)
-        self.assertLessEqual(len(result.stdout.encode("utf-8")), 1_000_000)
+        self.assertLessEqual(len(result.stdout.encode("utf-8")), 8_000_000)
         self.assertIn("output exceeded", result.stderr)
 
 

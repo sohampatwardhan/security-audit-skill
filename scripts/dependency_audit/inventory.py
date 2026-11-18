@@ -23,7 +23,9 @@ from .models import DependencyScope, InventoryResult, PackageRef, SourceState, S
 
 
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 30.0
-_OUTPUT_LIMIT = 1_000_000
+# Resolved graphs for otherwise modest Cargo projects routinely exceed 1 MB.
+# Keep native adapter output bounded while allowing complete package/edge data.
+_OUTPUT_LIMIT = 8_000_000
 _NON_EXACT_VERSION_CHARS = frozenset("<>=~^*|,")
 _SEMVER_EXACT = re.compile(r"^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$")
 _GO_VERSION_EXACT = re.compile(r"^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$")

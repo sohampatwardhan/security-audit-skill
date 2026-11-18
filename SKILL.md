@@ -1,10 +1,13 @@
 ---
-name: dependency-security-audit
+name: security-audit-skill
 description: Audit resolved third-party dependencies for known vulnerabilities, CISA KEV exploitation, affected versions, and available fixes. Use when adding or upgrading a library, changing a lockfile, preparing protected-main integration or release, investigating an OSV/GHSA/CVE record, or selecting a patched dependency version.
-version: 1.0.2
+license: MIT
+compatibility: Requires Python 3.10+ (standard library only) and network access to OSV, CISA KEV, and optionally GitHub and NVD. Native audit tools (npm, pip-audit, cargo-audit, govulncheck) are used when the matching ecosystem is present.
+metadata:
+  version: "1.0.4"
 ---
 
-# Dependency Security Audit
+# Security Audit: Dependency Vulnerabilities
 
 Audit exact resolved dependency snapshots and produce reviewable JSON and Markdown evidence. Use
 the advisory search only for investigation; it does not make a project delivery decision.
@@ -69,16 +72,35 @@ to unknown. See the [reachability contract](references/policy.md#reachability-ev
 
 1. Use only the authoritative fixed version selected by the report; do not infer that a newer-looking
    version is safe. Keep unresolved advisories explicit when no common safe version exists.
-2. Immediately before proposing implementation changes, use Context7 for the exact library and
-   selected version. Record current migration, API, and configuration guidance and its source.
+2. Immediately before proposing implementation changes, fetch current documentation for the exact
+   library and selected version (Context7 when available, otherwise the library's official
+   documentation). Record the migration, API, and configuration guidance and its source.
 3. Request explicit user approval before a major-version upgrade or dependency replacement. If
    ecosystem-aware major-version evaluation is unavailable, treat approval as unresolved and ask.
 4. Update the owned manifest and lockfile, run the project's relevant tests, then run a new `change`
    audit. Run fresh `main` or `release` mode again at the corresponding delivery gate.
 
 The standalone CLI records the resulting audit evidence; approval and test evidence belong in the
-delivery workflow. Do not claim remediation complete until Context7 guidance, required approval,
+delivery workflow. Do not claim remediation complete until the documentation guidance, required approval,
 tests, and the post-change audit are all present.
+
+### Rebuilt vendor artifacts and container images
+
+When remediation rebuilds a vendor-supplied fat JAR, executable, archive, or container rather than
+only changing the project's ordinary lockfile:
+
+1. Pin and verify the upstream source identity, record every dependency override, and preserve the
+   upstream version contract. Do not silently replace libraries inside an opaque binary artifact.
+2. Scan the original artifact and the rebuilt artifact independently so the evidence distinguishes
+   embedded-library remediation from base-image reduction.
+3. Run the vendor's complete relevant test suite, not only the consuming project's smoke tests.
+4. Normalize archive metadata, perform at least two independent clean builds, and require identical
+   artifact digests before calling the derivative reproducible.
+5. Scan the exact delivered image or archive after assembly. Removing a package database, SBOM, or
+   scanner-recognized metadata is not remediation unless the vulnerable bytes are absent from the
+   delivered artifact.
+6. Retain source, output, base-image, and helper-image digests plus human- and machine-readable scan
+   evidence. Treat any unavailable final-artifact scan as unavailable, never clean.
 
 ## Search advisory records
 
