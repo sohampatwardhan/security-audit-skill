@@ -48,7 +48,8 @@ freshness, and output options. Reports default to
 `PROJECT/.security-audit/dependency-audit/latest.json` and `latest.md`; main and release also retain
 timestamped immutable reports.
 
-The report folder also holds a generated `README.md` (executive summary) and `AGENTS.md`
+Each report carries an area-neutral `summary` that the README reads; see the [summary block and RAG status](references/policy.md#report-summary-block).
+The report folder also holds a generated `README.md` (executive summary with a red/amber/green status) and `AGENTS.md`
 (instructions for working with findings) and a `.gitignore` that excludes credential-bearing paths
 (`private/`, `raw/`, `.env*`, key files). Its contents may be committed publicly, credentials never: keep free-text
 inputs (acceptances, mitigations, reachability evidence) free of secrets, internal hostnames, and

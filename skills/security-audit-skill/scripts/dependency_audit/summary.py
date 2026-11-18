@@ -68,7 +68,11 @@ def build_summary(
         ``top_findings`` (at most ``MAX_TOP_FINDINGS``), ``more_findings`` and ``source_gaps``.
     """
     ordered = sorted(active_findings, key=_sort_key)
-    gaps = [item for item in result.sources if item.state in _GAP_STATES]
+    # The gate treats inventory statuses and source statuses alike, so the summary must too.
+    gaps = sorted(
+        (item for item in (*result.inventory.statuses, *result.sources) if item.state in _GAP_STATES),
+        key=lambda item: (item.source, item.state.value),
+    )
     return {
         "area": area,
         "status": result.gate_status.value,

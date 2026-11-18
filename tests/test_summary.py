@@ -53,6 +53,20 @@ class BuildSummaryTest(unittest.TestCase):
             [{"source": "source-1", "state": "partial"}, {"source": "source-2", "state": "unavailable"}],
         )
 
+    def test_inventory_statuses_count_as_source_gaps_like_the_gate(self) -> None:
+        result = result_with([], [SourceState.OK], GateStatus.WARNINGS)
+        result.inventory.statuses = [
+            SourceStatus("pip-inspect", SourceState.PARTIAL),
+            SourceStatus("inventory-completeness", SourceState.UNAVAILABLE),
+        ]
+        summary = build_summary(DEPENDENCY_AREA, result, [])
+        self.assertEqual(summary["counts"]["source_gaps"], 2)
+        self.assertEqual(
+            summary["source_gaps"],
+            [{"source": "inventory-completeness", "state": "unavailable"},
+             {"source": "pip-inspect", "state": "partial"}],
+        )
+
     def test_unavailable_status_is_never_reported_as_pass(self) -> None:
         result = result_with([], [SourceState.PARTIAL], GateStatus.UNAVAILABLE)
         summary = build_summary(DEPENDENCY_AREA, result, [])

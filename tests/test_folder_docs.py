@@ -154,6 +154,22 @@ class FolderDocsTest(unittest.TestCase):
                 self.assertIn("| [area](area/latest.md) | 🟢 Green | pass | main |", readme)
                 self.assertIn("re-run the audit", readme)
 
+    def test_non_pass_area_with_nothing_to_list_still_says_why_to_look(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            folder = Path(raw) / ".security-audit"
+            self._write(folder, "area", {"gate_status": "warnings", "summary": self._summary("warnings")})
+            readme = dict(refresh_folder_docs(folder))[folder / "README.md"]
+        self.assertIn("No individual findings or source gaps are listed; see [area/latest.md]", readme)
+
+    def test_iso_timestamp_is_readable_and_other_text_stays_escaped(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            folder = Path(raw) / ".security-audit"
+            self._write(folder, "ok", {"gate_status": "pass", "timestamp": "2026-11-18T06:05:29.015135Z"})
+            self._write(folder, "odd", {"gate_status": "pass", "timestamp": "<b>x</b>"})
+            readme = dict(refresh_folder_docs(folder))[folder / "README.md"]
+        self.assertIn("2026-11-18T06:05:29.015135Z", readme)
+        self.assertNotIn("<b>", readme)
+
     def test_oversized_summary_is_capped_in_the_readme(self) -> None:
         finding = {"severity": "high", "id": "ADV", "subject": "pkg:npm/a@1", "flags": []}
         with tempfile.TemporaryDirectory() as raw:

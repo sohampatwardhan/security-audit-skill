@@ -67,6 +67,81 @@ In main and release, required-evidence unavailability takes aggregate precedence
 but the block remains in the report. In change mode, a source gap prevents a `pass`: the outcome is
 `warnings`, or `blocked` when a known blocking finding is also present.
 
+## Report summary block
+
+Every audit report (schema `1.1`) carries an area-neutral `summary`. The generated
+`.security-audit/README.md` reads only this block, so a new audit area never needs the README to know
+its finding shape. Status and counts come from the same gate result the exit code uses.
+
+| Field | Meaning |
+|---|---|
+| `area` | Stable area name, matching the report's directory (`dependency-audit`). |
+| `status` | The gate status: `pass`, `warnings`, `blocked`, `unavailable`, or `invalid`. |
+| `mode` | `change`, `main`, or `release`. |
+| `counts` | `blocking`, `warnings`, `excluded`, and `source_gaps` as non-negative integers. |
+| `top_findings` | At most 10 active findings, known-exploited first then by severity: `severity`, `id`, `subject`, `flags`. |
+| `more_findings` | How many active findings are not listed. |
+| `source_gaps` | Sources that were `partial` or `unavailable`, as `source` and `state`. |
+
+How a report becomes the folder summary:
+
+```mermaid
+flowchart TD
+    A([Audit finishes]) --> B[Gate sets status and exit code]
+    B --> C[[build_summary from decisions and sources]]
+    C --> D[/Write latest.json with summary/]
+    D --> E{Parent folder is .security-audit?}
+    E -->|No| Z([End])
+    E -->|Yes| F[[refresh_folder_docs]]
+    F --> G[/Write README.md, AGENTS.md, .gitignore/]
+    G --> Z
+```
+
+The README treats every summary field as untrusted. Unknown enum values degrade to `invalid`, `-`, or
+`unknown`; text is flattened, escaped, and capped at 200 characters; lists are capped; and a missing
+or malformed summary (counts that are not plain integers) falls back to the report's `gate_status`
+with a note to re-run the audit. A malformed summary can never make a result look better.
+
+```mermaid
+flowchart TD
+    A([Refresh folder docs]) --> B[Take next area folder]
+    B --> C{Name matches pattern and latest.json readable?}
+    C -->|No| N{More folders?}
+    C -->|Yes| D{Summary block valid?}
+    D -->|Yes| E[Use summary status, counts, findings]
+    D -->|No| F[Use gate_status only, add re-run note]
+    E --> G[Map status to RAG]
+    F --> G
+    G --> H[Escape and cap all text]
+    H --> N
+    N -->|Yes| B
+    N -->|No| I[/Write README.md/]
+    I --> Z([End])
+```
+
+### RAG status
+
+The README shows a red, amber, or green indicator per area and overall (the worst area's). It is
+derived from `status` at render time and is not stored in the report. The word always accompanies the
+symbol so colour is never the only signal, and anything not clearly `pass` or `warnings` is red.
+
+| Status | RAG |
+|---|---|
+| `pass` | 🟢 Green |
+| `warnings` | 🟠 Amber (review needed, never "clean") |
+| `blocked`, `unavailable`, `invalid`, unknown, or missing | 🔴 Red |
+
+```mermaid
+flowchart LR
+    S{Report status?}
+    S -->|pass| G([Green])
+    S -->|warnings| A([Amber])
+    S -->|blocked| R([Red])
+    S -->|unavailable| R
+    S -->|invalid| R
+    S -->|unknown or missing| R
+```
+
 ## Release acceptance and remediation evidence
 
 A release no-fix warning needs a recorded mitigation and approval, otherwise the result is
