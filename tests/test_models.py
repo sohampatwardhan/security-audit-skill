@@ -55,7 +55,7 @@ class ModelSerializationTests(unittest.TestCase):
         encoded = result.to_dict()
 
         json.dumps(encoded)
-        self.assertEqual(encoded["schema_version"], "1.0")
+        self.assertEqual(encoded["schema_version"], "1.1")
         self.assertEqual(encoded["mode"], "change")
         self.assertEqual(encoded["findings"][0]["package"]["scope"], "runtime")
 
@@ -71,6 +71,9 @@ class ModelSerializationTests(unittest.TestCase):
         )
 
     def test_search_result_distinguishes_empty_completion(self) -> None:
+        self.assertEqual(
+            AdvisorySearchResult(kind=SearchKind.KEV, query={}).to_dict()["schema_version"], "1.0",
+        )
         result = AdvisorySearchResult.completed(
             kind=SearchKind.PACKAGE,
             query={"ecosystem": "PyPI", "name": "safe", "version": "1.0.0"},

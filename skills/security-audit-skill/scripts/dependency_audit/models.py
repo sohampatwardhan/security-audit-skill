@@ -13,6 +13,7 @@ from typing import Any, Mapping
 
 
 SCHEMA_VERSION = "1.0"
+AUDIT_SCHEMA_VERSION = "1.1"
 
 
 class AuditMode(str, Enum):
@@ -304,7 +305,7 @@ class AuditResult(_Serializable):
     decisions: list[DecisionRecord] = field(default_factory=list)
     gate_status: GateStatus = GateStatus.PASS
     exit_code: int = 0
-    schema_version: str = SCHEMA_VERSION
+    schema_version: str = AUDIT_SCHEMA_VERSION
 
     @classmethod
     def empty(cls, mode: AuditMode) -> "AuditResult":
