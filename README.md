@@ -47,7 +47,7 @@ python3 scripts/dependency_security_audit.py --root /path/to/project --mode main
 python3 scripts/dependency_advisory_search.py package --ecosystem PyPI --name requests --version 2.31.0 --format json
 ```
 
-Reports are written to `PROJECT/.security/dependency-audit/` (`latest.json`, `latest.md`; main and
+Reports are written to `PROJECT/.security-audit/dependency-audit/` (`latest.json`, `latest.md`; main and
 release also keep timestamped copies). Credentials are passed as environment-variable **names**
 (`--github-token-env`, `--nvd-api-key-env`), never values. Release evidence for no-fix findings
 goes in `--acceptances` (format in `references/policy.md`).

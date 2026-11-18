@@ -6,7 +6,7 @@ arguments name environment variables, keeping secrets out of process listings an
 Human output is concise text; JSON output is a summary whose status and exit code match the full
 versioned reports. Exit ``0`` means pass or warnings, ``1`` blocked findings, ``2`` unavailable or
 incomplete required evidence, and ``3`` invalid invocation. Reports default to
-``ROOT/.security/dependency-audit``; main and release modes additionally retain immutable evidence.
+``ROOT/.security-audit/dependency-audit``; main and release modes additionally retain immutable evidence.
 """
 
 from __future__ import annotations
@@ -90,7 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Audit one exact resolved dependency snapshot and write JSON/Markdown evidence.",
         epilog=(
             "stdout contains one human or JSON summary; invalid invocation diagnostics use stderr. "
-            "Reports default to ROOT/.security/dependency-audit; main/release retain immutable "
+            "Reports default to ROOT/.security-audit/dependency-audit; main/release retain immutable "
             "timestamped evidence. Exits: 0 pass/warnings, 1 blocked, 2 unavailable/incomplete, "
             "3 invalid. Credential options accept ENVIRONMENT VARIABLE NAMES, never secret values."
         ),
@@ -186,7 +186,7 @@ def _validate(arguments: argparse.Namespace, environment: Mapping[str, str]) -> 
     policy_path = _optional_file(arguments.policy, "--policy")
     acceptances, remediations = _load_acceptances(_optional_file(arguments.acceptances, "--acceptances"))
     output = Path(arguments.output).expanduser().resolve() if arguments.output else (
-        root / ".security" / "dependency-audit"
+        root / ".security-audit" / "dependency-audit"
     )
     if output.exists() and not output.is_dir():
         raise InvalidInvocation("--output must name a directory, not a file")

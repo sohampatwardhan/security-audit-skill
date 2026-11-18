@@ -45,8 +45,14 @@ python3 scripts/dependency_security_audit.py --root /path/to/project --mode main
 [the evidence format](references/policy.md#release-acceptance-and-remediation-evidence)).
 Credential options accept environment-variable names, never secret values. Use `--help` for timeout,
 freshness, and output options. Reports default to
-`PROJECT/.security/dependency-audit/latest.json` and `latest.md`; main and release also retain
+`PROJECT/.security-audit/dependency-audit/latest.json` and `latest.md`; main and release also retain
 timestamped immutable reports.
+
+The report folder also holds a generated `README.md` (executive summary) and `AGENTS.md`
+(instructions for working with findings) and a `.gitignore` that excludes credential-bearing paths
+(`private/`, `raw/`, `.env*`, key files). Its contents may be committed publicly, credentials never: keep free-text
+inputs (acceptances, mitigations, reachability evidence) free of secrets, internal hostnames, and
+personal data, and ask the user before committing a report that still shows a blocking finding.
 
 ## Interpret the result
 
