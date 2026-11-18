@@ -1,0 +1,7 @@
+version: 2
+updates:
+  # The skill has no third-party runtime dependencies; only workflow actions need updates.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

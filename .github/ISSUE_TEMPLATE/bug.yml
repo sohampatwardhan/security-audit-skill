@@ -1,0 +1,23 @@
+name: Bug report
+description: Something behaves unexpectedly
+type: Bug
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Expected and actual behavior. Do not paste secrets or private paths.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The command, mode, and a minimal dependency snapshot.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Skill version
+      description: The `metadata.version` from SKILL.md, or a commit.

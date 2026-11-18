@@ -1,0 +1,11 @@
+name: Task
+description: A specific piece of work such as a chore, refactor, docs, or CI change
+type: Task
+body:
+  - type: textarea
+    id: work
+    attributes:
+      label: Work to do
+      description: What needs doing and what done looks like.
+    validations:
+      required: true
