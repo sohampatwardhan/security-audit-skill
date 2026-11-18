@@ -59,6 +59,21 @@ goes in `--acceptances` (format in `references/policy.md`).
 | 2 | `unavailable` | Required evidence missing, partial, stale, or unwritable |
 | 3 | `invalid` | Invalid invocation or configuration |
 
+How the audit decides its status and exit code:
+
+```mermaid
+flowchart TD
+    A([Audit result]) --> B{Configuration valid?}
+    B -->|No| X3([invalid, exit 3])
+    B -->|Yes| C{Required evidence missing, partial, stale, or incomplete?}
+    C -->|Yes| X2([unavailable, exit 2])
+    C -->|No| D{Any blocking finding?}
+    D -->|Yes| X1([blocked, exit 1])
+    D -->|No| E{Warnings or change-mode source gaps?}
+    E -->|Yes| XW([warnings, exit 0])
+    E -->|No| XP([pass, exit 0])
+```
+
 ## Structure
 
 ```text

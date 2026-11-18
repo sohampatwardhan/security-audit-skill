@@ -17,6 +17,8 @@ README, and nothing more.
 2. Make the README read only that block, with a defined fallback for reports that lack it.
 3. Have the dependency audit write the block, additively, with no change to its exit codes, report
    paths, decisions, or existing JSON fields.
+4. Show each area's status, and the folder's overall status, as a RAG (red, amber, green) indicator
+   with a small chart in the generated README.
 
 ## Non-goals
 
@@ -30,6 +32,7 @@ README, and nothing more.
   the same decisions as the gate, never recomputed separately.
 - Letting an area's summary inject markup, links, or paths into a document that may be published.
 - Breaking existing consumers of `latest.json` (schema change must be purely additive).
+- A RAG indicator greener than the evidence: anything not clearly `pass` or `warnings` is red.
 
 ## Constraints
 
@@ -49,6 +52,51 @@ README, and nothing more.
 Chosen: **C**, by the user.
 
 ## Design
+
+### Flow: from audit to README
+
+How a report becomes the folder summary. The README is rebuilt from every area's `latest.json`, so one
+area's audit refreshes the whole summary.
+
+```mermaid
+flowchart TD
+    A([Audit finishes]) --> B[Gate sets status and exit code]
+    B --> C[[build_summary from decisions and sources]]
+    C --> D[/Write latest.json with summary/]
+    D --> E{Parent folder is .security-audit?}
+    E -->|No| Z([End])
+    E -->|Yes| F[[refresh_folder_docs]]
+    F --> G[/Write README.md, AGENTS.md, .gitignore/]
+    G --> Z
+```
+
+The same sequence, by component:
+
+```mermaid
+sequenceDiagram
+    participant CLI as dependency_security_audit.py
+    participant Run as runner
+    participant Rep as reporting
+    participant Sum as summary
+    participant Docs as folder_docs
+    participant FS as .security-audit folder
+    CLI->>Run: run_audit(config, services)
+    Run->>Run: gate_result sets status and exit code
+    Run->>Rep: write_reports(result, output_dir)
+    Rep->>Sum: build_summary(area, result, active findings)
+    Sum-->>Rep: summary dict
+    Rep->>FS: latest.json and latest.md
+    alt output_dir parent is .security-audit
+        Rep->>Docs: refresh_folder_docs(parent)
+        Docs->>FS: read each area latest.json
+        Docs->>Sum: read_summary(data)
+        Sum-->>Docs: ReportSummary or None
+        Docs-->>Rep: README.md, AGENTS.md, .gitignore text
+        Rep->>FS: write redacted documents
+    end
+    Rep-->>Run: report paths
+    Run-->>CLI: result and exit code
+```
 
 ### The `summary` block
 
@@ -85,12 +133,66 @@ Added to every report's JSON at schema version `1.1` (was `1.0`):
 - `folder_docs.py` reads the summary through `read_summary` and drops its dependency-specific
   parsing (`_top_findings`, `_decision_counts`, `_source_gaps`).
 
+### Reading the summary into the README
+
+```mermaid
+flowchart TD
+    A([Refresh folder docs]) --> B[Take next area folder]
+    B --> C{Name matches pattern and latest.json readable?}
+    C -->|No| N{More folders?}
+    C -->|Yes| D{Summary block valid?}
+    D -->|Yes| E[Use summary status, counts, findings]
+    D -->|No| F[Use gate_status only, add re-run note]
+    E --> G[Map status to RAG]
+    F --> G
+    G --> H[Escape and cap all text]
+    H --> N
+    N -->|Yes| B
+    N -->|No| I[/Write README.md/]
+    I --> Z([End])
+```
+
 ### Reading rules (untrusted input)
 
 - Enums restricted to known values (`status`, `mode`, severity, flags); unknown becomes `invalid`,
   `-`, `unknown`, or is dropped.
 - Text fields flattened, HTML- and Markdown-escaped, and length-capped; lists capped.
 - Area folder names must match `[A-Za-z0-9._-]+` before being linked.
+
+### RAG status
+
+RAG is derived from `status` at render time and is not stored in the schema. The README shows it with a
+word as well as a symbol, so colour is never the only signal. The folder's overall RAG is the worst area's.
+
+| Status | RAG |
+|---|---|
+| `pass` | 🟢 Green |
+| `warnings` | 🟠 Amber (review needed, never "clean") |
+| `blocked` | 🔴 Red |
+| `unavailable` | 🔴 Red (safety not established) |
+| `invalid`, unknown, or missing | 🔴 Red |
+
+```mermaid
+flowchart LR
+    S{Report status?}
+    S -->|pass| G([Green])
+    S -->|warnings| A([Amber])
+    S -->|blocked| R([Red])
+    S -->|unavailable| R
+    S -->|invalid| R
+    S -->|unknown or missing| R
+```
+
+The README gets a RAG column in its table, an overall banner, a legend, and a pie of areas by RAG
+(zero-count slices omitted; slice colours are Mermaid's defaults, so the labels carry the meaning). For
+example, with one area in each state:
+
+```mermaid
+pie title Areas by RAG status
+    "Green" : 1
+    "Amber" : 1
+    "Red" : 1
+```
 
 ### Compatibility
 
@@ -102,6 +204,8 @@ Added to every report's JSON at schema version `1.1` (was `1.0`):
 
 - Regenerate `tests/fixtures/expected-report.*` for schema `1.1`; golden tests prove all other fields
   and exit codes are unchanged.
+- `rag_for` maps every status to the table above and sends unknown values to red; the README overall RAG
+  is the worst area's; the pie omits zero slices and contains only counts.
 - `build_summary` agrees with `gate_result` for pass, warnings, blocked, and unavailable.
 - `read_summary` and the README: missing summary fallback, unknown enum values, oversized lists and
   text, and injection attempts in every field (reuse the existing injection test pattern).
@@ -109,5 +213,6 @@ Added to every report's JSON at schema version `1.1` (was `1.0`):
 ## Left to the builder
 
 - Exact severity ordering ties and the `flags` vocabulary beyond `known_exploited`.
+- The exact emoji and legend wording for RAG.
 - Wording of the fallback note for pre-`1.1` reports.
 - Whether `read_summary` returns a dataclass or a plain dict.

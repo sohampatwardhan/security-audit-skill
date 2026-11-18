@@ -10,6 +10,15 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-18-report-summary-contract-design.md`
 
+**Task order:**
+
+```mermaid
+flowchart LR
+    T1[Task 1: build_summary] --> T2[Task 2: write summary, schema 1.1]
+    T2 --> T3[Task 3: read_summary and README]
+    T3 --> T4[Task 4: docs and end to end check]
+```
+
 ## Global Constraints
 
 - Python 3.10+, standard library only; offline, deterministic tests; fail closed.
@@ -18,6 +27,7 @@
 - `top_findings` is capped at 10, ordered known-exploited first then by severity (critical, high, medium, low, unknown); `more_findings` counts the rest.
 - The README treats every summary field as untrusted: enums restricted, text flattened, escaped, and length-capped, lists capped, area folder names must match `[A-Za-z0-9._-]+`.
 - No credential values, local paths, or hostnames in reports or the README.
+- RAG: `pass` is green, `warnings` amber, everything else (`blocked`, `unavailable`, `invalid`, unknown, missing) red; the overall RAG is the worst area's; the word always accompanies the symbol; RAG is derived at render time and not stored in the schema.
 - Out of scope: new audit areas, an `Area` protocol, registry, `AreaResult` envelope, unified CLI.
 
 ## Review Focus
@@ -26,17 +36,20 @@
 2. Withdrawn or excluded advisories appearing in `top_findings` or counted as blocking (Task 1).
 3. Hostile or oversized summary content (HTML, Markdown links, newlines, pipes, 1000-item lists, 10k-char strings) reaching the README (Task 3).
 4. A `summary` that is a list, string, `null`, or has negative, boolean, string, or float counts: must fall back, never crash or look better than the truth (Task 3).
-5. A pre-`1.1` report with no `summary` still listed in the README with status only and a re-run note (Task 3).
+5. A RAG that is greener than the evidence: an unknown or missing status, or an `unavailable` report, must be red (Task 3).
+6. A pre-`1.1` report with no `summary` still listed in the README with status only and a re-run note (Task 3).
 
 ---
 
 ### Task 1: Build the summary block
 
 **Files:**
+
 - Create: `skills/security-audit-skill/scripts/dependency_audit/summary.py`
 - Test: `tests/test_summary.py`
 
 **Interfaces:**
+
 - Consumes: `AuditResult`, `Finding`, `Decision`, `SourceState` from `dependency_audit.models`.
 - Produces: `DEPENDENCY_AREA = "dependency-audit"`, `MAX_TOP_FINDINGS = 10`, and `build_summary(area: str, result: AuditResult, active_findings: Sequence[Finding]) -> dict[str, Any]` returning the spec's `summary` dict (keys `area`, `status`, `mode`, `counts` {`blocking`, `warnings`, `excluded`, `source_gaps`}, `top_findings` [{`severity`, `id`, `subject`, `flags`}], `more_findings`, `source_gaps` [{`source`, `state`}]).
 
@@ -77,12 +90,14 @@ def test_unrecognized_severity_becomes_unknown(self):  # "SEV-9" -> "unknown", "
 ### Task 2: Write the summary into audit reports (schema 1.1)
 
 **Files:**
+
 - Modify: `skills/security-audit-skill/scripts/dependency_audit/models.py` (add `AUDIT_SCHEMA_VERSION = "1.1"`; `AuditResult.schema_version` defaults to it; `AdvisorySearchResult` keeps `SCHEMA_VERSION = "1.0"`)
 - Modify: `skills/security-audit-skill/scripts/dependency_audit/reporting.py` (`render_json`)
 - Modify: `tests/fixtures/expected-report.json`
 - Test: `tests/test_models.py:58`, `tests/test_reporting.py:106`, `tests/test_reporting.py`
 
 **Interfaces:**
+
 - Consumes: `build_summary`, `DEPENDENCY_AREA` (Task 1); `_ordered_evidence` in `reporting.py`.
 - Produces: every `render_json` payload has `summary` (redacted with the rest of the payload) and `schema_version == "1.1"`.
 
@@ -118,11 +133,13 @@ def test_advisory_search_schema_version_is_unchanged(self):
 ### Task 3: Read the summary safely and render the README from it
 
 **Files:**
+
 - Modify: `skills/security-audit-skill/scripts/dependency_audit/summary.py`
 - Modify: `skills/security-audit-skill/scripts/dependency_audit/folder_docs.py`
 - Test: `tests/test_summary.py`, `tests/test_folder_docs.py`
 
 **Interfaces:**
+
 - Consumes: `build_summary` output shape (Task 1); `_text`, `_status`, `_mode`, `_AREA_NAME` already in `folder_docs.py`.
 - Produces:
 
@@ -136,7 +153,10 @@ class ReportSummary:
     top_findings: tuple[SummaryFinding, ...]; more_findings: int
     gap_items: tuple[tuple[str, str], ...]
 def read_summary(data: Mapping[str, Any]) -> ReportSummary | None
+def rag_for(status: str) -> str   # "green" | "amber" | "red"; unknown status -> "red"
 ```
+
+`rag_for` is the single mapping from the spec's RAG table; the README uses it for each area and takes the worst of them for the overall banner.
 
 Reader rules: return `None` when `data["summary"]` is missing, not a dict, or any count is not a plain `int` (reject `bool`, negatives, floats, strings) in `0..1_000_000`. Unknown `status` becomes `"invalid"`, unknown `mode` becomes `"-"`, unknown severity becomes `"unknown"`, unknown flags are dropped. Text fields are whitespace-flattened and truncated to 200 characters; `top_findings` and `gap_items` truncated to 10. Escaping stays in the README renderer.
 
@@ -145,6 +165,10 @@ Reader rules: return `None` when `data["summary"]` is missing, not a dict, or an
 ```python
 def test_roundtrip_of_a_built_summary(self):
     self.assertEqual(read_summary({"summary": built}).blocking, built["counts"]["blocking"])
+
+def test_rag_mapping_never_greener_than_status(self):
+    self.assertEqual([rag_for(x) for x in ("pass", "warnings", "blocked", "unavailable", "invalid", "x", "")],
+                     ["green", "amber", "red", "red", "red", "red", "red"])
 
 def test_malformed_summaries_return_none(self):  # missing; list; "x"; None; 3; counts -1, True, 1.5, "2"
     for bad in cases: self.assertIsNone(read_summary({"summary": bad}))
@@ -163,6 +187,16 @@ def test_enums_text_and_lists_are_clamped(self):  # status "x", mode "x", severi
 def test_readme_comes_only_from_the_summary(self):  # change a finding id in `findings` but not in `summary`
     self.assertNotIn("CHANGED-ONLY-IN-FINDINGS", readme)
 
+def test_readme_shows_rag_word_overall_banner_legend_and_pie(self):  # areas: pass, warnings, blocked
+    self.assertIn("🟢 Green", readme); self.assertIn("🟠 Amber", readme); self.assertIn("🔴 Red", readme)
+    self.assertIn("**Overall: 🔴 Red", readme)
+    self.assertIn('pie title Areas by RAG status', readme)
+
+def test_pie_omits_zero_slices_and_holds_only_counts(self):  # one blocked area
+    self.assertNotIn('"Green"', readme); self.assertIn('"Red" : 1', readme)
+
+def test_unavailable_or_unknown_status_is_red(self):  # gate_status "unavailable" and "[x](y)"
+
 def test_pre_summary_report_is_listed_with_status_only(self):  # fixture minus `summary`, schema 1.0
     self.assertIn("| [dependency-audit](dependency-audit/latest.md) | blocked | change |", readme)
     self.assertIn("re-run the audit", readme)
@@ -174,7 +208,7 @@ def test_oversized_summary_is_capped_in_the_readme(self):  # 1000 findings -> at
 
 - [ ] **Step 3: Run** `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_summary tests.test_folder_docs -v`. Expected: FAIL (`read_summary` missing; README still reads findings).
 
-- [ ] **Step 4: Implement `read_summary`, `SummaryFinding`, `ReportSummary` in `summary.py`**, then refactor `folder_docs._render_readme`: the table row and per-area section use `read_summary(data)`; when it returns `None`, use `_status`, `_mode`, and `-` for counts, plus the line `Older report format: re-run the audit for counts and findings.` Delete `_top_findings`, `_decision_counts`, `_source_gaps` and their now-unused constants. Keep escaping through `_text` and keep the area-folder name check in `_load_reports`.
+- [ ] **Step 4: Implement `read_summary`, `SummaryFinding`, `ReportSummary` in `summary.py`**, then refactor `folder_docs._render_readme` (flow in the spec's "Reading the summary into the README" diagram): the table row and per-area section use `read_summary(data)`; when it returns `None`, use `_status`, `_mode`, and `-` for counts, plus the line `Older report format: re-run the audit for counts and findings.` Delete `_top_findings`, `_decision_counts`, `_source_gaps` and their now-unused constants. Add a RAG column, an overall banner, a legend, and the pie chart. Keep escaping through `_text` and keep the area-folder name check in `_load_reports`.
 
 - [ ] **Step 5: Run** the same command, then the full suite. Expected: OK.
 
@@ -185,16 +219,19 @@ def test_oversized_summary_is_capped_in_the_readme(self):  # 1000 findings -> at
 ### Task 4: Document the contract and verify end to end
 
 **Files:**
-- Modify: `skills/security-audit-skill/references/policy.md` (new "Report summary block" section: schema `1.1`, field table, ordering and caps, and the fallback for older reports)
+
+- Modify: `skills/security-audit-skill/references/policy.md` (new "Report summary block" section: schema `1.1`, field table, ordering and caps, the fallback for older reports, the RAG table, and the write-flow and README-flow diagrams from the spec)
 - Modify: `skills/security-audit-skill/SKILL.md` (one sentence in the report-folder paragraph: reports carry a `summary` the README reads)
 - Modify: `AGENTS.md` ("Changing behavior": every area must write the summary block and never read area-specific fields in the README)
+- Modify: `skills/security-audit-skill/scripts/dependency_audit/folder_docs.py` (the generated `AGENTS_MD`: explain RAG and that only green means no action)
 - Modify: `CHANGELOG.md` (Unreleased: Added summary block; Changed: audit report schema `1.1`)
 
 **Interfaces:**
+
 - Consumes: the behavior from Tasks 1 to 3.
 - Produces: docs that match `--help`-verifiable behavior and the field table in the spec.
 
-- [ ] **Step 1: Write the four documentation changes above**, copying field names and caps from the spec.
+- [ ] **Step 1: Write the four documentation changes above**, copying field names, caps, and the validated Mermaid diagrams from the spec (do not redraw them).
 
 - [ ] **Step 2: Run the full suite.** `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v`. Expected: OK, with the test count higher than the 174 baseline.
 

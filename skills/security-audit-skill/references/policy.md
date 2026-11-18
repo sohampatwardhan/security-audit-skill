@@ -48,6 +48,21 @@ invalid rather than silently changing policy.
 | No-fix warning without mitigation and acceptance | Warning | Warning | Unavailable |
 | Report write failure | Unavailable | Unavailable | Unavailable |
 
+The aggregate decision order, as a flow:
+
+```mermaid
+flowchart TD
+    A([Audit result]) --> B{Configuration valid?}
+    B -->|No| X3([invalid, exit 3])
+    B -->|Yes| C{Required evidence missing, partial, stale, or incomplete?}
+    C -->|Yes| X2([unavailable, exit 2])
+    C -->|No| D{Any blocking finding?}
+    D -->|Yes| X1([blocked, exit 1])
+    D -->|No| E{Warnings or change-mode source gaps?}
+    E -->|Yes| XW([warnings, exit 0])
+    E -->|No| XP([pass, exit 0])
+```
+
 In main and release, required-evidence unavailability takes aggregate precedence over a known block,
 but the block remains in the report. In change mode, a source gap prevents a `pass`: the outcome is
 `warnings`, or `blocked` when a known blocking finding is also present.
