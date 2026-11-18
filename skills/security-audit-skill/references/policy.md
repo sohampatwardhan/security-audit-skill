@@ -52,6 +52,39 @@ In main and release, required-evidence unavailability takes aggregate precedence
 but the block remains in the report. In change mode, a source gap prevents a `pass`: the outcome is
 `warnings`, or `blocked` when a known blocking finding is also present.
 
+## Release acceptance and remediation evidence
+
+A release no-fix warning needs a recorded mitigation and approval, otherwise the result is
+`unavailable`. Supply them with `--acceptances /path/to/acceptances.json`:
+
+```json
+{
+  "schema_version": "1",
+  "acceptances": {
+    "pkg:pypi/example@1.2.3|OSV-2026-1": {
+      "mitigation": "Network egress to the vulnerable parser is blocked.",
+      "approval": "Approved by the security owner on 2026-11-17."
+    }
+  },
+  "remediations": {
+    "pkg:pypi/example@1.2.3|OSV-2026-1": {
+      "target_version": "1.2.4",
+      "context7_evidence": "Reviewed current migration notes.",
+      "project_tests_passed": true,
+      "post_change_audit_passed": true
+    }
+  }
+}
+```
+
+Acceptance keys are `<exact-purl>|<advisory-id>` or a bare advisory ID for a project-wide record, and
+both fields must be non-empty strings. Remediation keys are `<exact-purl>|<advisory-id>` or a bare
+package URL; `target_version` is required and the other fields are `context7_evidence`,
+`major_upgrade`, `replacement`, `explicit_approval`, `resolution_changed`, `project_tests_passed`,
+and `post_change_audit_passed`. The file must be JSON no larger than 1 MiB with schema major `1`;
+unknown fields, wrong types, or empty values make the invocation invalid (exit `3`). An acceptance
+never downgrades a blocking finding or a KEV result, and recorded text appears in both reports.
+
 ## Reachability evidence
 
 The document must be readable JSON no larger than 1 MiB, use schema major `1`, and contain an

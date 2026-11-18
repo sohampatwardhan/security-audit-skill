@@ -26,7 +26,7 @@ from typing import NoReturn
 
 
 TESTS = Path(__file__).resolve().parent
-SCRIPTS = TESTS.parent / "scripts"
+SCRIPTS = TESTS.parent / "skills" / "security-audit-skill" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from dependency_audit.http import RetryingHttpClient, redact_diagnostic  # noqa: E402

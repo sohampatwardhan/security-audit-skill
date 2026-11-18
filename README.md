@@ -25,11 +25,12 @@ Spun off from the now-deprecated `spec-driven-development-skills`, where it was
 
 ## Install
 
-Place this directory where your agent loads skills, with the directory name matching the skill
-name (`security-audit-skill`):
+The skill lives in `skills/security-audit-skill/`. Link or copy that directory to where your agent
+loads skills, keeping the directory name equal to the skill name (`security-audit-skill`):
 
 ```bash
-git clone https://github.com/sohampatwardhan/security-audit-skill ~/.claude/skills/security-audit-skill
+git clone https://github.com/sohampatwardhan/security-audit-skill ~/GitRepos/security-audit-skill
+ln -s ~/GitRepos/security-audit-skill/skills/security-audit-skill ~/.claude/skills/security-audit-skill
 ```
 
 Requires Python 3.10+ (standard library only) and network access. `npm`, `pip-audit`,
@@ -39,7 +40,7 @@ Requires Python 3.10+ (standard library only) and network access. `npm`, `pip-au
 
 Agents load [`SKILL.md`](SKILL.md) automatically when you add or upgrade a dependency, change a
 lockfile, prepare a main or release revision, or investigate an advisory. The CLIs can also be run
-directly from this directory:
+directly from `skills/security-audit-skill/`:
 
 ```bash
 python3 scripts/dependency_security_audit.py --root /path/to/project --mode main --revision REVISION --format json
@@ -48,7 +49,8 @@ python3 scripts/dependency_advisory_search.py package --ecosystem PyPI --name re
 
 Reports are written to `PROJECT/.security/dependency-audit/` (`latest.json`, `latest.md`; main and
 release also keep timestamped copies). Credentials are passed as environment-variable **names**
-(`--github-token-env`, `--nvd-api-key-env`), never values.
+(`--github-token-env`, `--nvd-api-key-env`), never values. Release evidence for no-fix findings
+goes in `--acceptances` (format in `references/policy.md`).
 
 | Exit | Status | Meaning |
 |---:|---|---|
@@ -61,12 +63,14 @@ release also keep timestamped copies). Credentials are passed as environment-var
 
 ```text
 security-audit-skill/
-├── SKILL.md              # Skill entry point (frontmatter + workflow)
-├── agents/openai.yaml    # Agent-specific display metadata
-├── references/           # Loaded on demand: policy.md, sources.md
-├── scripts/              # CLIs and the dependency_audit package
-├── tests/                # Offline unit tests and fixtures
-└── .specs/               # Historical build spec (not read by agents)
+├── skills/security-audit-skill/    # The skill itself (what gets installed)
+│   ├── SKILL.md                    # Entry point (frontmatter + workflow)
+│   ├── agents/openai.yaml          # Agent-specific display metadata
+│   ├── references/                 # Loaded on demand: policy.md, sources.md
+│   └── scripts/                    # CLIs and the dependency_audit package
+├── tests/                          # Offline unit tests and fixtures
+├── AGENTS.md                       # Contributor and maintainer instructions
+└── .specs/                         # Historical build spec (not read by agents)
 ```
 
 ## Testing

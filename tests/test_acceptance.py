@@ -18,7 +18,7 @@ import unittest
 
 TESTS = Path(__file__).resolve().parent
 FIXTURES = TESTS / "fixtures"
-SCRIPTS = TESTS.parent / "scripts"
+SCRIPTS = TESTS.parent / "skills" / "security-audit-skill" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import dependency_security_audit as cli  # noqa: E402

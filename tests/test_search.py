@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 
 
-SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+SCRIPTS = Path(__file__).resolve().parents[1] / "skills" / "security-audit-skill" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from dependency_advisory_search import main  # noqa: E402

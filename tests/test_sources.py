@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from urllib.request import Request
 
-SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+SCRIPTS = Path(__file__).resolve().parents[1] / "skills" / "security-audit-skill" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 FIXTURES = Path(__file__).with_name("fixtures")
 
@@ -646,6 +646,39 @@ print(json.dumps({{"url": http.url, "packages": [[item.ecosystem, item.name, ite
                     "CVE-2025-0001")
                 self.assertEqual(result.status.state, SourceState.PARTIAL)
                 self.assertEqual(result.value.enrichments[0].cvss_scores, ())
+
+    def test_real_world_empty_cvss_placeholders_and_non_cvss_containers_stay_ok(self) -> None:
+        # Shapes observed live: GitHub emits an empty v4 placeholder and NVD adds an SSVC container.
+        vector = "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:L"
+        github_payload = {"ghsa_id": "GHSA-abcd-1234-efgh", "vulnerabilities": [],
+                          "cvss": {"vector_string": vector, "score": 5.6},
+                          "cvss_severities": {"cvss_v3": {"vector_string": vector, "score": 5.6},
+                                              "cvss_v4": {"vector_string": None, "score": 0.0}}}
+        github = GithubClient(RetryingHttpClient(FakeTransport([response(200, github_payload)]))).lookup(
+            "GHSA-abcd-1234-efgh")
+        nvd_payload = {"vulnerabilities": [{"cve": {"id": "CVE-2025-0001", "metrics": {
+            "cvssMetricV31": [{"cvssData": {"baseScore": 5.6, "vectorString": vector}}],
+            "ssvcV203": [{"source": "x", "type": "Secondary", "ssvcData": {"options": []}}]}}}]}
+        nvd = NvdClient(RetryingHttpClient(FakeTransport([response(200, nvd_payload)]))).lookup("CVE-2025-0001")
+
+        self.assertEqual(github.status.state, SourceState.OK, github.status.diagnostic)
+        self.assertEqual(github.value.enrichments[0].cvss_scores, (5.6,))
+        self.assertEqual(nvd.status.state, SourceState.OK, nvd.status.diagnostic)
+        self.assertEqual(nvd.value.enrichments[0].cvss_scores, (5.6,))
+
+    def test_partial_or_nonzero_cvss_entries_and_unknown_cvss_containers_still_fail_closed(self) -> None:
+        for evidence in ({"cvss": {"vector_string": None, "score": 7.5}},
+                         {"cvss": {"vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:L", "score": None}},
+                         {"cvss_severities": {"cvss_v9": {"vector_string": None, "score": 0.0}}}):
+            with self.subTest(evidence=evidence):
+                payload = {"ghsa_id": "GHSA-abcd-1234-efgh", "vulnerabilities": [], **evidence}
+                result = GithubClient(RetryingHttpClient(FakeTransport([response(200, payload)]))).lookup(
+                    "GHSA-abcd-1234-efgh")
+                self.assertEqual(result.status.state, SourceState.PARTIAL)
+        payload = {"vulnerabilities": [{"cve": {"id": "CVE-2025-0001", "metrics": {
+            "cvssMetricV99": [{"cvssData": {"baseScore": 1.0, "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:L"}}]}}}]}
+        result = NvdClient(RetryingHttpClient(FakeTransport([response(200, payload)]))).lookup("CVE-2025-0001")
+        self.assertEqual(result.status.state, SourceState.PARTIAL)
 
     def test_malformed_secondary_reference_rows_and_updated_timestamp_are_partial(self) -> None:
         github_payload = {"ghsa_id": "GHSA-abcd-1234-efgh", "vulnerabilities": [],

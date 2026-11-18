@@ -1,18 +1,18 @@
 # AGENTS.md
 
 Instructions for AI agents (and humans) contributing to or maintaining this skill. This repository
-**is** the skill: the repo root is the skill directory, and `SKILL.md` is its entry point. For what
+ships the skill from `skills/security-audit-skill/`, whose `SKILL.md` is the entry point. For what
 the skill does and how to use it, read [README.md](README.md) and [SKILL.md](SKILL.md).
 
 ## Layout
 
 | Path | Purpose |
 |---|---|
-| `SKILL.md` | Skill entry point: frontmatter plus the operational workflow agents follow. |
-| `references/` | Detail loaded on demand (`policy.md`, `sources.md`); linked from `SKILL.md`. |
-| `scripts/` | The two CLIs and the `dependency_audit` package they share. |
-| `tests/` | Offline unit tests and fixtures; `live_smoke.py` is opt-in and networked. |
-| `agents/openai.yaml` | Display metadata for agents that read it. |
+| `skills/security-audit-skill/SKILL.md` | Skill entry point: frontmatter plus the operational workflow agents follow. |
+| `skills/security-audit-skill/references/` | Detail loaded on demand (`policy.md`, `sources.md`); linked from `SKILL.md`. |
+| `skills/security-audit-skill/scripts/` | The two CLIs and the `dependency_audit` package they share. |
+| `skills/security-audit-skill/agents/openai.yaml` | Display metadata for agents that read it. |
+| `tests/` | Offline unit tests and fixtures; `live_smoke.py` is opt-in and networked. Not shipped with the skill. |
 | `.specs/` | Historical build spec. Do not edit or treat as current behavior. |
 
 ## Commands
@@ -55,7 +55,7 @@ Follow the [Agent Skills specification](https://agentskills.io/specification):
 
 - Frontmatter allows only `name`, `description`, `license`, `compatibility`, `metadata`, and
   `allowed-tools`. Put the semver in `metadata.version`, never as a top-level key.
-- `name` must match the directory name (`security-audit-skill`), be lowercase with hyphens, and
+- `name` must match the skill directory name (`skills/security-audit-skill/`), be lowercase with hyphens, and
   stay within 64 characters. `description` states what the skill does and when to use it, within
   1024 characters.
 - Keep `SKILL.md` focused (aim under 500 lines); move depth into `references/` and reference it by

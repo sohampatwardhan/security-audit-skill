@@ -857,6 +857,9 @@ class GithubClient:
                 evidence_diagnostics.append("GitHub CVSS metric is invalid")
                 continue
             score, vector = candidate.get("score"), candidate.get("vector_string")
+            if vector is None and not isinstance(score, bool) and score in (None, 0):
+                # GitHub emits an empty placeholder (null vector, zero score) when a version is unscored.
+                continue
             try:
                 verified_score, verified_vector = _verified_cvss(score, vector, expected)
             except (KeyError, ValueError):
@@ -956,6 +959,8 @@ class NvdClient:
             expected = {"cvssMetricV2": {"2.0"}, "cvssMetricV30": {"3.0"},
                         "cvssMetricV31": {"3.1"}, "cvssMetricV40": {"4.0"}}.get(str(label))
             if expected is None:
+                if not str(label).startswith("cvssMetric"):
+                    continue  # non-CVSS containers such as ssvcV203 carry no score evidence
                 diagnostics.append("NVD CVSS container version is invalid")
                 continue
             if not isinstance(values, list):

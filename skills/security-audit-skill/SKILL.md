@@ -4,7 +4,7 @@ description: Audit resolved third-party dependencies for known vulnerabilities, 
 license: MIT
 compatibility: Requires Python 3.10+ (standard library only) and network access to OSV, CISA KEV, and optionally GitHub and NVD. Native audit tools (npm, pip-audit, cargo-audit, govulncheck) are used when the matching ecosystem is present.
 metadata:
-  version: "1.0.4"
+  version: "1.1.0"
 ---
 
 # Security Audit: Dependency Vulnerabilities
@@ -38,9 +38,11 @@ python3 scripts/dependency_security_audit.py --root /path/to/project --mode rele
 Add evidence or stricter policy when available:
 
 ```bash
-python3 scripts/dependency_security_audit.py --root /path/to/project --mode main --sbom /path/to/bom.json --reachability /path/to/reachability.json --policy /path/to/policy.json --output /path/to/reports --github-token-env GITHUB_TOKEN --nvd-api-key-env NVD_API_KEY --format json
+python3 scripts/dependency_security_audit.py --root /path/to/project --mode main --sbom /path/to/bom.json --reachability /path/to/reachability.json --policy /path/to/policy.json --acceptances /path/to/acceptances.json --output /path/to/reports --github-token-env GITHUB_TOKEN --nvd-api-key-env NVD_API_KEY --format json
 ```
 
+`--acceptances` records the mitigation and approval a release needs for a no-fix finding (see
+[the evidence format](references/policy.md#release-acceptance-and-remediation-evidence)).
 Credential options accept environment-variable names, never secret values. Use `--help` for timeout,
 freshness, and output options. Reports default to
 `PROJECT/.security/dependency-audit/latest.json` and `latest.md`; main and release also retain
