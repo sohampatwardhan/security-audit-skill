@@ -19,6 +19,7 @@ import unicodedata
 from typing import Any, Iterable, Mapping
 from urllib.parse import parse_qsl, quote, urlsplit, urlunsplit
 
+from .folder_docs import is_security_dir, refresh_folder_docs
 from .models import AuditMode, AuditResult, Decision, DecisionRecord, Finding, GateStatus
 
 
@@ -237,7 +238,9 @@ def write_reports(
 
     Args:
         result: Completed evidence used for both JSON and Markdown outputs.
-        output_dir: Destination directory, normally ``.security/dependency-audit``.
+        output_dir: Destination directory, normally ``.security-audit/dependency-audit``.
+            When its parent is a ``.security-audit`` folder, that folder's README.md and
+            AGENTS.md are refreshed too.
         credential_values: Exact sensitive values to redact from content and failure diagnostics.
 
     Returns:
@@ -281,6 +284,11 @@ def write_reports(
             if _create_immutable(evidence_markdown, retained_markdown_text):
                 created_evidence.append(evidence_markdown)
         _atomic_replace_many(((latest_json, json_text), (latest_markdown, markdown_text)))
+        if is_security_dir(output_dir.parent):
+            _atomic_replace_many(
+                (path, _sanitize_text(text, secrets, preserve_newlines=True))
+                for path, text in refresh_folder_docs(output_dir.parent)
+            )
         return ReportPaths(latest_json, latest_markdown, evidence_json, evidence_markdown)
     except (OSError, ValueError, ReportWriteError) as error:
         for path in reversed(created_evidence):

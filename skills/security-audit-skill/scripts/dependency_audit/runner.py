@@ -363,7 +363,7 @@ def _write_unavailable_result(
 ) -> None:
     """Persist an early operational failure while preserving unavailable precedence."""
     try:
-        services.reports(result, config.output_dir or Path(config.root) / ".security" / "dependency-audit",
+        services.reports(result, config.output_dir or Path(config.root) / ".security-audit" / "dependency-audit",
                          credential_values=config.credential_values)
     except Exception as error:
         result.sources.append(SourceStatus(
@@ -416,7 +416,7 @@ def _finish_and_write(
     aggregate = gate_result(gate_view)
     result.gate_status, result.exit_code = aggregate.status, aggregate.exit_code
     try:
-        services.reports(result, config.output_dir or Path(config.root) / ".security" / "dependency-audit",
+        services.reports(result, config.output_dir or Path(config.root) / ".security-audit" / "dependency-audit",
                          credential_values=config.credential_values)
     except Exception as error:
         result.sources.append(SourceStatus("reporting", SourceState.UNAVAILABLE,

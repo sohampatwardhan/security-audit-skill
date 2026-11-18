@@ -12,7 +12,7 @@ import sys
 import tempfile
 import unittest
 
-SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+SCRIPTS = Path(__file__).resolve().parents[1] / "skills" / "security-audit-skill" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import dependency_security_audit as cli  # noqa: E402
@@ -32,7 +32,8 @@ class FakeTransport:
     """Serve deterministic OSV/KEV payloads and expose request bounds for assertions."""
 
     def __init__(self, *, severity: str | None = None, fail_osv: bool = False,
-                 secret: str = "") -> None:
+                 secret: str = "", no_fix: bool = False) -> None:
+        self.no_fix = no_fix
         self.severity = severity
         self.fail_osv = fail_osv
         self.secret = secret
@@ -53,7 +54,7 @@ class FakeTransport:
                 "affected": [{
                     "package": {"ecosystem": "PyPI", "name": "demo", "purl": "pkg:pypi/demo"},
                     "ranges": [{"type": "ECOSYSTEM", "events": [
-                        {"introduced": "0"}, {"fixed": "1.0.1"},
+                        {"introduced": "0"}, *([] if self.no_fix else [{"fixed": "1.0.1"}]),
                     ]}],
                 }],
             })
@@ -168,8 +169,8 @@ class CliTests(unittest.TestCase):
             return "\n".join(json.dumps(event) for event in events) + "\n"
         return json.dumps(finding[source])
 
-    def services(self, *, severity=None, fail_osv=False, secret="", complete=True):
-        transport = FakeTransport(severity=severity, fail_osv=fail_osv, secret=secret)
+    def services(self, *, severity=None, fail_osv=False, secret="", complete=True, no_fix=False):
+        transport = FakeTransport(severity=severity, fail_osv=fail_osv, secret=secret, no_fix=no_fix)
         http = RetryingHttpClient(transport, sleeper=lambda delay: None, secrets=(secret,))
         services = AuditServices(
             inventory=lambda root, sbom: self.inventory(root, sbom, complete=complete),
@@ -223,6 +224,77 @@ class CliTests(unittest.TestCase):
                 )
                 self.assertEqual(code, expected_code)
                 self.assertEqual(json.loads(stdout)["status"], expected_status)
+
+    def write_acceptances(self, payload) -> Path:
+        path = Path(self.temp.name) / "acceptances.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return path
+
+    def test_release_no_fix_needs_acceptance_file_and_then_reports_warnings(self) -> None:
+        services, _transport = self.services(severity="medium", no_fix=True)
+        code, stdout, _stderr, _output = self.invoke("release", services, output=Path(self.temp.name) / "r0")
+        self.assertEqual((code, json.loads(stdout)["status"]), (2, "unavailable"))
+
+        for key in ("pkg:pypi/demo@1.0.0|OSV-ONE", "OSV-ONE"):
+            with self.subTest(key=key):
+                accepted = self.write_acceptances({"schema_version": "1", "acceptances": {
+                    key: {"mitigation": "Network egress blocked for this component.",
+                          "approval": "Approved by security owner 2026-11-17."}}})
+                services, _transport = self.services(severity="medium", no_fix=True)
+                code, stdout, _stderr, output = self.invoke(
+                    "release", services, output=Path(self.temp.name) / f"r-{len(key)}",
+                    extra=("--acceptances", str(accepted)))
+                self.assertEqual((code, json.loads(stdout)["status"]), (0, "warnings"))
+                self.assertIn("Network egress blocked", (output / "latest.md").read_text(encoding="utf-8"))
+
+    def test_acceptances_file_cannot_downgrade_a_blocking_finding(self) -> None:
+        accepted = self.write_acceptances({"schema_version": "1", "acceptances": {
+            "OSV-ONE": {"mitigation": "m", "approval": "a"}}})
+        services, _transport = self.services(severity="high")
+        code, stdout, _stderr, _output = self.invoke(
+            "release", services, extra=("--acceptances", str(accepted)))
+        self.assertEqual((code, json.loads(stdout)["status"]), (1, "blocked"))
+
+    def test_remediation_evidence_file_is_parsed_into_typed_records(self) -> None:
+        accepted = self.write_acceptances({"schema_version": "1.2", "remediations": {
+            "pkg:pypi/demo@1.0.0|OSV-ONE": {"target_version": "1.0.1", "context7_evidence": "docs reviewed",
+                                           "project_tests_passed": True, "post_change_audit_passed": True}}})
+        acceptances, remediations = cli._load_acceptances(accepted)
+        self.assertEqual(acceptances, {})
+        record = remediations["pkg:pypi/demo@1.0.0|OSV-ONE"]
+        self.assertEqual((record.target_version, record.project_tests_passed, record.major_upgrade),
+                         ("1.0.1", True, False))
+
+    def test_invalid_acceptances_files_exit_three(self) -> None:
+        good = {"mitigation": "m", "approval": "a"}
+        cases = (
+            [], {"acceptances": {}}, {"schema_version": "2", "acceptances": {}},
+            {"schema_version": "1", "extra": {}},
+            {"schema_version": "1", "acceptances": []},
+            {"schema_version": "1", "acceptances": {"bad key": good}},
+            {"schema_version": "1", "acceptances": {"OSV-ONE": {"mitigation": "m"}}},
+            {"schema_version": "1", "acceptances": {"OSV-ONE": {"mitigation": " ", "approval": "a"}}},
+            {"schema_version": "1", "acceptances": {"OSV-ONE": {**good, "extra": "x"}}},
+            {"schema_version": "1", "remediations": {"pkg:pypi/demo@1.0.0": {"context7_evidence": "x"}}},
+            {"schema_version": "1", "remediations": {"pkg:pypi/demo@1.0.0": {
+                "target_version": "1.0.1", "project_tests_passed": "yes"}}},
+            {"schema_version": "1", "remediations": {"pkg:pypi/demo@1.0.0": {
+                "target_version": "1.0.1", "unknown": True}}},
+        )
+        for index, payload in enumerate(cases):
+            with self.subTest(index=index):
+                path = self.write_acceptances(payload)
+                services, _transport = self.services()
+                code, stdout, stderr, _output = self.invoke(
+                    "release", services, extra=("--acceptances", str(path)))
+                self.assertEqual((code, stdout), (3, ""))
+                self.assertIn("--acceptances", stderr)
+        path = Path(self.temp.name) / "broken.json"
+        path.write_text("{", encoding="utf-8")
+        services, _transport = self.services()
+        code, _stdout, stderr, _output = self.invoke("release", services, extra=("--acceptances", str(path)))
+        self.assertEqual(code, 3)
+        self.assertIn("--acceptances", stderr)
 
     def test_policy_file_has_same_decision_in_summary_and_canonical_report(self) -> None:
         policy = Path(self.temp.name) / "policy.json"

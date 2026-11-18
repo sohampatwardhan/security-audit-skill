@@ -6,7 +6,7 @@ arguments name environment variables, keeping secrets out of process listings an
 Human output is concise text; JSON output is a summary whose status and exit code match the full
 versioned reports. Exit ``0`` means pass or warnings, ``1`` blocked findings, ``2`` unavailable or
 incomplete required evidence, and ``3`` invalid invocation. Reports default to
-``ROOT/.security/dependency-audit``; main and release modes additionally retain immutable evidence.
+``ROOT/.security-audit/dependency-audit``; main and release modes additionally retain immutable evidence.
 """
 
 from __future__ import annotations
@@ -34,7 +34,9 @@ from dependency_audit.models import (
     AuditMode, AuditResult, Decision, InventoryResult, PackageRef, SourceState, SourceStatus,
 )
 from dependency_audit.policy import Policy
-from dependency_audit.runner import AuditConfig, AuditServices, NativeAuditResult, run_audit
+from dependency_audit.runner import (
+    AuditConfig, AuditServices, NativeAuditResult, RemediationEvidence, RiskAcceptance, run_audit,
+)
 from dependency_audit.sources import GithubClient, KevClient, NvdClient, OsvClient, _cvss_score
 
 
@@ -88,7 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Audit one exact resolved dependency snapshot and write JSON/Markdown evidence.",
         epilog=(
             "stdout contains one human or JSON summary; invalid invocation diagnostics use stderr. "
-            "Reports default to ROOT/.security/dependency-audit; main/release retain immutable "
+            "Reports default to ROOT/.security-audit/dependency-audit; main/release retain immutable "
             "timestamped evidence. Exits: 0 pass/warnings, 1 blocked, 2 unavailable/incomplete, "
             "3 invalid. Credential options accept ENVIRONMENT VARIABLE NAMES, never secret values."
         ),
@@ -98,6 +100,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sbom", help="optional readable CycloneDX JSON file")
     parser.add_argument("--reachability", help="optional readable reachability JSON file")
     parser.add_argument("--policy", help="optional strict-policy JSON file")
+    parser.add_argument("--acceptances",
+                        help="optional JSON file of release mitigation/approval and remediation evidence")
     parser.add_argument("--output", help="report directory; defaults under the project root")
     parser.add_argument("--baseline-fingerprint", help="change-mode comparison fingerprint")
     parser.add_argument("--revision", default="", help="project revision recorded in evidence")
@@ -155,6 +159,7 @@ def main(
         sbom_path=settings["sbom"], reachability_path=settings["reachability"],
         output_dir=settings["output"], project_revision=arguments.revision,
         policy=settings["policy"], source_max_age_seconds=arguments.source_max_age,
+        release_acceptances=settings["acceptances"], remediations=settings["remediations"],
         credential_values=settings["credentials"],
     )
     before_reports = _report_snapshot(settings["output"])
@@ -179,8 +184,9 @@ def _validate(arguments: argparse.Namespace, environment: Mapping[str, str]) -> 
     sbom = _optional_file(arguments.sbom, "--sbom")
     reachability = _optional_file(arguments.reachability, "--reachability")
     policy_path = _optional_file(arguments.policy, "--policy")
+    acceptances, remediations = _load_acceptances(_optional_file(arguments.acceptances, "--acceptances"))
     output = Path(arguments.output).expanduser().resolve() if arguments.output else (
-        root / ".security" / "dependency-audit"
+        root / ".security-audit" / "dependency-audit"
     )
     if output.exists() and not output.is_dir():
         raise InvalidInvocation("--output must name a directory, not a file")
@@ -197,6 +203,7 @@ def _validate(arguments: argparse.Namespace, environment: Mapping[str, str]) -> 
     return {
         "root": root, "sbom": sbom, "reachability": reachability,
         "policy": _load_policy(policy_path), "output": output,
+        "acceptances": acceptances, "remediations": remediations,
         "credentials": tuple(credentials), **resolved,
     }
 
@@ -215,6 +222,68 @@ def _optional_file(value: str | None, option: str) -> Path | None:
     except OSError as error:
         raise InvalidInvocation(f"{option} must be readable") from error
     return path
+
+
+_MAX_EVIDENCE_BYTES = 1_048_576
+_ACCEPTANCE_KEY = re.compile(r"(?:[^|\s]+\|)?[A-Za-z0-9][A-Za-z0-9._-]*")
+_REMEDIATION_KEY = re.compile(r"[^|\s]+(?:\|[A-Za-z0-9][A-Za-z0-9._-]*)?")
+
+
+def _load_acceptances(
+    path: Path | None,
+) -> tuple[dict[str, RiskAcceptance], dict[str, RemediationEvidence]]:
+    """Load schema-major-1 release acceptance and remediation evidence, failing closed on any doubt."""
+    if path is None:
+        return {}, {}
+    try:
+        if path.stat().st_size > _MAX_EVIDENCE_BYTES:
+            raise InvalidInvocation("--acceptances must not exceed 1 MiB")
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise InvalidInvocation(f"--acceptances is not valid readable JSON: {error}") from error
+    if not isinstance(payload, dict) or set(payload) - {"schema_version", "acceptances", "remediations"}:
+        raise InvalidInvocation("--acceptances must be an object with schema_version, acceptances, remediations")
+    version = payload.get("schema_version")
+    if not isinstance(version, str) or version.split(".")[0] != "1":
+        raise InvalidInvocation("--acceptances requires schema_version with major version 1")
+    acceptances: dict[str, RiskAcceptance] = {}
+    remediations: dict[str, RemediationEvidence] = {}
+    for section, key_pattern, build in (
+        ("acceptances", _ACCEPTANCE_KEY, _build_acceptance),
+        ("remediations", _REMEDIATION_KEY, _build_remediation),
+    ):
+        records = payload.get(section, {})
+        if not isinstance(records, dict):
+            raise InvalidInvocation(f"--acceptances {section} must be an object")
+        for key, value in records.items():
+            if not isinstance(key, str) or not key_pattern.fullmatch(key):
+                raise InvalidInvocation(f"--acceptances {section} key is not a package|advisory identifier")
+            try:
+                record = build(key, value)
+            except InvalidInvocation as error:
+                raise InvalidInvocation(f"--acceptances {section}: {error}") from None
+            (acceptances if section == "acceptances" else remediations)[key] = record
+    return acceptances, remediations
+
+
+def _build_acceptance(key: str, value: object) -> RiskAcceptance:
+    if (not isinstance(value, dict) or set(value) != {"mitigation", "approval"}
+            or any(not isinstance(item, str) or not item.strip() for item in value.values())):
+        raise InvalidInvocation("each acceptance needs non-empty string mitigation and approval only")
+    return RiskAcceptance(mitigation=value["mitigation"], approval=value["approval"])
+
+
+def _build_remediation(key: str, value: object) -> RemediationEvidence:
+    spec = {item.name: item for item in fields(RemediationEvidence)}
+    if not isinstance(value, dict) or set(value) - set(spec) or "target_version" not in value:
+        raise InvalidInvocation("each remediation needs target_version and only supported fields")
+    for name, item in value.items():
+        expected = bool if isinstance(spec[name].default, bool) else str
+        if not isinstance(item, expected):
+            raise InvalidInvocation(f"remediation field {name} has the wrong type")
+    if not value["target_version"].strip():
+        raise InvalidInvocation("remediation target_version must not be empty")
+    return RemediationEvidence(**value)
 
 
 def _load_policy(path: Path | None) -> Policy:
